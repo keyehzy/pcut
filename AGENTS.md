@@ -32,3 +32,9 @@ The original research sources and their provenance live in references/.
   and `ctest --preset release`. Use the sanitize preset for memory/UB validation.
 - Document units, basis ordering, series convention, limits, and provenance.
   Do not edit downloaded reference sources. Do not commit build products.
+
+## Other
+- Do not keep any backwards compatibility, this is a single user library and will
+  likely slow down our fast-paced development.
+- Prefer cloning/download sources locally (e.g. to /tmp) instead of open indivisual
+  pages online.
