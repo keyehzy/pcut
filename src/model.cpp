@@ -1,4 +1,5 @@
 #include <pcut/model.hpp>
+#include "detail.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -29,20 +30,6 @@ void LocalSpace::require_product_vacuum() const {
     if (std::count(charges.begin(), charges.end(), 0) != 1)
         throw std::invalid_argument("driver requires a unique local charge-zero product vacuum");
 }
-namespace {
-std::vector<std::pair<std::size_t,std::size_t>> gather_inversions(
-    std::size_t size, const std::vector<std::size_t>& support) {
-    std::vector<std::size_t> order = support;
-    std::set<std::size_t> used;
-    for (auto s : support) if (s >= size || !used.insert(s).second)
-        throw std::invalid_argument("invalid graded embedding support");
-    for (std::size_t s = 0; s < size; ++s) if (!used.contains(s)) order.push_back(s);
-    std::vector<std::pair<std::size_t,std::size_t>> inversions;
-    for (std::size_t i=0; i<size; ++i) for (std::size_t j=i+1; j<size; ++j)
-        if (order[i] > order[j]) inversions.emplace_back(order[i],order[j]);
-    return inversions;
-}
-}
 int graded_gather_sign(const std::vector<LocalSpace>& spaces, const std::vector<unsigned>& local,
                        const std::vector<std::size_t>& support) {
     if (local.size() != spaces.size()) throw std::invalid_argument("graded state size mismatch");
@@ -51,16 +38,13 @@ int graded_gather_sign(const std::vector<LocalSpace>& spaces, const std::vector<
         if (local[s] >= spaces[s].charges.size() || spaces[s].parity.empty())
             throw std::invalid_argument("graded embedding requires parity metadata");
     }
-    unsigned parity=0;
-    for (auto [a,b] : gather_inversions(spaces.size(),support))
-        parity ^= spaces[a].parity[local[a]] & spaces[b].parity[local[b]];
-    return parity ? -1 : 1;
+    return detail::gather_sign(spaces,local,detail::gather_inversions(spaces.size(),support));
 }
 ClusterModel::ClusterModel(std::vector<LocalSpace> spaces, std::vector<LocalTerm> terms,
-                           double gap, double zero_tolerance)
+                           double gap)
     : spaces_(std::move(spaces)), gap_(gap) {
-    if (!std::isfinite(gap) || gap <= 0 || !std::isfinite(zero_tolerance) || zero_tolerance < 0)
-        throw std::invalid_argument("gap must be positive and tolerance nonnegative, both finite");
+    if (!std::isfinite(gap) || gap <= 0)
+        throw std::invalid_argument("gap must be positive and finite");
     if (spaces_.size() > 1000) throw std::length_error("too many local spaces");
     for (const auto& space : spaces_) {
         space.validate();
@@ -77,13 +61,15 @@ ClusterModel::ClusterModel(std::vector<LocalSpace> spaces, std::vector<LocalTerm
         if (term.sites.empty()) throw std::invalid_argument("local term must have support");
         std::set<std::size_t> unique;
         CompiledTerm compiled;
+        auto transitions=std::make_shared<CompiledTerm::Transitions>();
+        compiled.by_change=transitions;
         compiled.sites = term.sites;
         compiled.fermionic = term.fermionic;
         fermionic_ |= term.fermionic;
         if (term.fermionic) {
             for (const auto& space : spaces_) if (space.parity.empty())
                 throw std::invalid_argument("fermionic terms require parity on all sites");
-            compiled.inversions = gather_inversions(sites(), term.sites);
+            compiled.inversions = detail::gather_inversions(sites(), term.sites);
         }
         State dim = 1;
         for (auto s : term.sites) {
@@ -109,7 +95,7 @@ ClusterModel::ClusterModel(std::vector<LocalSpace> spaces, std::vector<LocalTerm
             }
         for (State col = 0; col < dim; ++col) for (State row = 0; row < dim; ++row) {
             const Complex v = term.matrix(static_cast<Eigen::Index>(row), static_cast<Eigen::Index>(col));
-            if (std::abs(v) <= zero_tolerance) continue;
+            if (v == Complex{}) continue;
             if (term.fermionic && parity[row] != parity[col])
                 throw std::invalid_argument("fermionic Hamiltonian terms must preserve total parity");
             if (number[row] != number[col]) conserves_particles_ = false;
@@ -121,7 +107,7 @@ ClusterModel::ClusterModel(std::vector<LocalSpace> spaces, std::vector<LocalTerm
                     operator_grading_valid_=false;
             }
             const int change = q[row] - q[col];
-            auto& columns = compiled.by_change[change];
+            auto& columns = (*transitions)[change];
             if (columns.empty()) columns.resize(static_cast<std::size_t>(dim));
             columns[col].push_back({row, v});
             changes.insert(change);
@@ -129,6 +115,27 @@ ClusterModel::ClusterModel(std::vector<LocalSpace> spaces, std::vector<LocalTerm
         terms_.push_back(std::move(compiled));
     }
     changes_.assign(changes.begin(), changes.end());
+}
+ClusterModel ClusterModel::embedded(std::vector<LocalSpace> spaces,
+    const std::vector<std::pair<const ClusterModel*,std::vector<std::size_t>>>& terms, double gap) {
+    ClusterModel result(std::move(spaces),{},gap);
+    std::set<int> changes;
+    for (const auto& [source,map] : terms) {
+        result.conserves_particles_ &= source->conserves_particles_;
+        result.fermionic_ |= source->fermionic_;
+        result.operator_grading_valid_ &= source->operator_grading_valid_;
+        if (source->fermionic_) for (const auto& space : result.spaces_) if (space.parity.empty())
+            throw std::invalid_argument("fermionic terms require parity on all sites");
+        for (const auto& term : source->terms_) {
+            auto bound=term; // transition tables are immutable and shared by interaction type
+            for (auto& site : bound.sites) site=map.at(site);
+            if (bound.fermionic) bound.inversions=detail::gather_inversions(result.sites(),bound.sites);
+            result.terms_.push_back(std::move(bound));
+        }
+        changes.insert(source->changes_.begin(),source->changes_.end());
+    }
+    result.changes_.assign(changes.begin(),changes.end());
+    return result;
 }
 double ClusterModel::vacuum_energy() const noexcept {
     double e = 0;
@@ -174,14 +181,17 @@ void ClusterModel::require_operator_grading() const {
         throw std::invalid_argument("operator linking requires complete parity metadata and graded parity-changing terms");
 }
 SparseState ClusterModel::apply(int change, const SparseState& input, std::size_t max_states) const {
+    return apply_scaled(change,input,max_states,1.0);
+}
+SparseState ClusterModel::apply_scaled(int change, const SparseState& input, std::size_t max_states, double divisor) const {
     SparseState result;
     for (const auto& [state, amplitude] : input) {
         if (state >= dimension_ || !std::isfinite(amplitude.real()) || !std::isfinite(amplitude.imag()))
             throw std::invalid_argument("invalid sparse input state");
         if (amplitude == Complex{}) continue;
         for (const auto& term : terms_) {
-            const auto block = term.by_change.find(change);
-            if (block == term.by_change.end()) continue;
+            const auto block = term.by_change->find(change);
+            if (block == term.by_change->end()) continue;
             State column = 0, removed = 0;
             for (std::size_t leg = 0; leg < term.sites.size(); ++leg) {
                 const auto s = term.sites[leg];
@@ -202,7 +212,7 @@ SparseState ClusterModel::apply(int change, const SparseState& input, std::size_
                     };
                     parity ^= (pa(state,a) & pa(state,b)) ^ (pa(output,a) & pa(output,b));
                 }
-                result[output] += (parity ? -amplitude : amplitude) * transition.value;
+                result[output] += (parity ? -amplitude : amplitude) * (transition.value / divisor);
                 if (result.size() > max_states) throw std::length_error("sparse intermediate-state budget exceeded");
             }
         }

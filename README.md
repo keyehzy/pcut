@@ -75,7 +75,10 @@ const auto bands = result.bloch({0.4}, 0.3); // Hermitian matrix, one row per fl
 `Series[n]` is the coefficient of `lambda^n`, without factorials. `Coefficients`
 uses Boost arbitrary-precision rationals; model evaluation uses complex doubles.
 Tables and effective programs can be reused across geometries and coupling sweeps
-that share a charge-change alphabet.
+that share a charge-change alphabet. Geometry-only `ClusterTopology` objects
+can also be shared across numerical `ClusterCatalog` bindings; each binding
+compiles transitions once per interaction type. See [the model guide](docs/models.md)
+for a coupling-sweep example.
 
 For the repulsive spinful Hubbard model, `models::hubbard_chain()` and
 `models::hubbard_square()` use `H/U = Q + (t/U) V`. The dedicated

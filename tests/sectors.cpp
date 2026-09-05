@@ -70,3 +70,19 @@ TEST_CASE("Ising two-particle kernels recover the Jordan-Wigner correlated hoppi
     const auto& hopping=result.kernels.at({{right},{left}});
     REQUIRE(hopping[2].real()==Catch::Approx(-0.5));
 }
+
+TEST_CASE("Sector storage is cumulative and excess catalog orders are skipped", "[sectors][budget]") {
+    const auto lattice=pcut::models::ising_chain();
+    const pcut::EffectiveOperator first(pcut::Coefficients(pcut::charge_changes(lattice),1));
+    pcut::SectorOptions options; options.max_matrix_elements=30;
+    const auto expected=pcut::linked_expand_sectors(pcut::ClusterCatalog(lattice,1),first,1,options);
+    const auto actual=pcut::linked_expand_sectors(pcut::ClusterCatalog(lattice,3),first,1,options);
+    REQUIRE(actual.energy_per_cell==expected.energy_per_cell);
+    REQUIRE(actual.kernels==expected.kernels);
+    const pcut::EffectiveOperator second(pcut::Coefficients(pcut::charge_changes(lattice),2));
+    options.solver.max_matrix_elements=48;
+    options.max_matrix_elements=70; // both individual blocks fit, their sum does not
+    REQUIRE_THROWS_AS(pcut::linked_expand_sectors(pcut::ClusterCatalog(lattice,2),second,1,options),std::length_error);
+    options.max_matrix_elements=26;
+    REQUIRE_THROWS_AS(pcut::irreducible_sectors(pcut::cluster_model(lattice,{{0,{0}}}),second,1,options),std::length_error);
+}

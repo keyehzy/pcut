@@ -61,3 +61,28 @@ TEST_CASE("Model contracts reject malformed input", "[model]") {
     REQUIRE_THROWS_AS(pcut::EffectiveOperator(pcut::Coefficients({0},1)).block(model,{0,0}),std::invalid_argument);
     REQUIRE_THROWS_AS(pcut::ClusterModel(std::vector<pcut::LocalSpace>(64,{{0,1},0,"spin"}),{}),std::length_error);
 }
+
+TEST_CASE("Physical energy unit rescaling preserves the effective series", "[model][units]") {
+    const pcut::EffectiveOperator effective(pcut::Coefficients({-1,1},6));
+    for (double scale : {1e-150,1e-90,1.0,1e90,1e150}) {
+        CAPTURE(scale);
+        pcut::Matrix x(2,2); x<<0,pcut::Complex(0,-scale),pcut::Complex(0,scale),0;
+        const pcut::ClusterModel model({{{0,1},0,"two-level"}},{{{0},x}},scale);
+        const auto block=effective.block(model,{0,1});
+        const auto vacuum=effective.vacuum(model);
+        for (unsigned n : {2U,4U,6U}) {
+            const double expected=n==2 ? -1 : n==4 ? 1 : -2;
+            REQUIRE((vacuum[n]/scale).real()==Catch::Approx(expected));
+            REQUIRE((block[n](0,0)/scale).real()==Catch::Approx(expected));
+            REQUIRE((block[n](1,1)/scale).real()==Catch::Approx(-expected));
+        }
+    }
+}
+TEST_CASE("Dense block budgets count every perturbative order", "[model][budget]") {
+    const pcut::ClusterModel model({{{0,1},0,"spin"}},{});
+    const pcut::EffectiveOperator effective(pcut::Coefficients({0},64));
+    pcut::SolverOptions options; options.max_matrix_elements=259;
+    REQUIRE_THROWS_AS(effective.block(model,{0,1},options),std::length_error);
+    options.max_matrix_elements=260;
+    REQUIRE(effective.block(model,{0,1},options).size()==65);
+}

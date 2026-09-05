@@ -80,3 +80,76 @@ TEST_CASE("On-site terms, multiple basis sites and complex directed hopping", "[
     REQUIRE(h[2].norm()<1e-12);
     REQUIRE(h[3].norm()<1e-12);
 }
+
+TEST_CASE("Linked scalar and particle drivers skip catalog orders they do not need", "[linked][budget]") {
+    const auto lattice=pcut::models::ising_chain();
+    const pcut::ClusterCatalog small(lattice,1), large(lattice,3);
+    const pcut::EffectiveOperator effective(pcut::Coefficients(pcut::charge_changes(lattice),1));
+    pcut::LinkedOptions options; options.max_matrix_elements=18; // energy, vacuum weight, 2x2 block and 3 hoppings
+    const auto expected=pcut::linked_expand(small,effective,options);
+    const auto actual=pcut::linked_expand(large,effective,options);
+    REQUIRE(actual.energy_per_cell==expected.energy_per_cell);
+    REQUIRE(actual.hopping==expected.hopping);
+    REQUIRE(actual.vacuum_weights.size()==1);
+    options.max_matrix_elements=17;
+    REQUIRE_THROWS_AS(pcut::linked_expand(small,effective,options),std::length_error);
+    unsigned calls=0;
+    const auto scalar=pcut::linked_scalar(large,1,[&](const auto& model) {
+        ++calls; REQUIRE(model.sites()==2); return pcut::Series{0,2};
+    },0,4);
+    REQUIRE(calls==1);
+    REQUIRE(scalar.weights.size()==1);
+    REQUIRE(scalar.per_cell[1]==pcut::Complex(2));
+    REQUIRE_THROWS_AS(pcut::linked_scalar(large,1,[](const auto&) { return pcut::Series{0,2}; },0,3),std::length_error);
+    const auto zero=pcut::linked_scalar(large,0,[&](const auto&) { ++calls; return pcut::Series{0}; });
+    REQUIRE(calls==1);
+    REQUIRE(zero.weights.empty());
+}
+TEST_CASE("Linked storage budgets accumulate retained cluster matrices", "[linked][budget]") {
+    const auto lattice=pcut::models::ising_chain();
+    const pcut::EffectiveOperator effective(pcut::Coefficients(pcut::charge_changes(lattice),2));
+    pcut::LinkedOptions options;
+    options.solver.max_matrix_elements=27; // each block fits separately
+    options.max_matrix_elements=40; // retained matrices alone need 12+27
+    REQUIRE_THROWS_AS(pcut::linked_expand(pcut::ClusterCatalog(lattice,2),effective,options),std::length_error);
+}
+TEST_CASE("Coupling sweeps bind shared topology and preserve ordered compiled legs", "[lattice][sweep]") {
+    auto lattice=pcut::models::dimerized_chain(0.17);
+    const pcut::ClusterCatalog original(lattice,2);
+    lattice=pcut::models::dimerized_chain(0.31);
+    lattice.gap=2.5;
+    lattice.cell[0].vacuum_energy=-0.9;
+    const pcut::ClusterCatalog rebound(lattice,original.topology()), fresh(lattice,2);
+    REQUIRE(&rebound.entries()==&original.entries());
+    const pcut::EffectiveOperator effective(pcut::Coefficients(pcut::charge_changes(lattice),2));
+    const auto a=pcut::linked_expand(rebound,effective), b=pcut::linked_expand(fresh,effective);
+    REQUIRE(a.energy_per_cell==b.energy_per_cell);
+    REQUIRE(a.hopping==b.hopping);
+    for (const auto& entry : rebound.entries()) {
+        const auto compiled=rebound.model(entry.edges).dense_hamiltonian(0.3);
+        REQUIRE(compiled.isApprox(pcut::cluster_model(lattice,entry.edges).dense_hamiltonian(0.3),1e-13));
+    }
+    const auto surviving_model=[&] {
+        const pcut::ClusterCatalog temporary(lattice,original.topology());
+        return temporary.model({{0,{0}},{0,{1}}});
+    }();
+    REQUIRE(surviving_model.dense_hamiltonian(0.3).isApprox(
+        pcut::cluster_model(lattice,{{0,{0}},{0,{1}}}).dense_hamiltonian(0.3),1e-13));
+    auto zero=lattice; zero.interactions[0].matrix.setZero();
+    const auto uncoupled=pcut::linked_expand(pcut::ClusterCatalog(zero,original.topology()),effective);
+    REQUIRE(uncoupled.energy_per_cell[0]==pcut::Complex(-0.9));
+    REQUIRE(uncoupled.energy_per_cell[2]==pcut::Complex{});
+    auto bad=lattice; bad.interactions[0].legs[0].cell[0]+=2;
+    REQUIRE_THROWS_AS(pcut::ClusterCatalog(bad,original.topology()),std::invalid_argument);
+    bad=lattice; bad.interactions[0].matrix(0,1)+=1;
+    REQUIRE_THROWS_AS(pcut::ClusterCatalog(bad,original.topology()),std::invalid_argument);
+
+    pcut::Matrix v=pcut::Matrix::Zero(6,6);
+    v(1,2)=pcut::Complex(0,0.7); v(2,1)=std::conj(v(1,2));
+    pcut::PeriodicLattice mixed{1,{{{0,1},0,"a"},{{0,1,2},0,"b"}},
+        {{{{{1},1},{{0},0}},v}},1};
+    const pcut::ClusterCatalog colored(mixed,1);
+    const pcut::Cluster edges{{0,{-2}},{0,{1}}};
+    REQUIRE(colored.model(edges).dense_hamiltonian(0.2).isApprox(
+        pcut::cluster_model(mixed,edges).dense_hamiltonian(0.2),1e-13));
+}

@@ -204,7 +204,9 @@ are extracted by orthogonal Pauli traces of linked weights, not numerical fits.
 `OperatorOptions` separately bounds external basis size (4096), basis-enumeration
 visits (one million), total retained complex matrix entries across weights and
 orders (32 million, about 512 MB of payload), and candidate row/column/order combinations per embedding (100 million). `SolverOptions::max_states` bounds sparse intermediate
-and output states. Coefficient and catalog budgets remain separately configurable.
+and output states; `SolverOptions::max_matrix_elements` additionally bounds each
+dense series (also 32 million entries). Both matrix limits must allow a requested
+block. Coefficient and catalog budgets remain separately configurable.
 Budget exhaustion throws instead of discarding states, sectors, words or clusters.
 Transient matrices, indices and sparse scratch storage add to the payload budget;
 it is not a bound on process resident memory. State IDs must fit 64 bits.

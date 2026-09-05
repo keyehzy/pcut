@@ -1,4 +1,5 @@
 #include <pcut/effective.hpp>
+#include "detail.hpp"
 #include <algorithm>
 #include <cmath>
 #include <functional>
@@ -36,26 +37,29 @@ std::vector<SparseState> EffectiveOperator::apply(const ClusterModel& model, Sta
     std::function<void(std::size_t,const SparseState&)> visit = [&](std::size_t index, const SparseState& state) {
         const auto& node = nodes_[index];
         if (node.coefficient != 0) {
-            // Physical V: n factors require Delta^(1-n).
-            const double factor = node.coefficient * std::pow(model.gap(), 1.0 - node.depth);
-            if (!std::isfinite(factor)) throw std::overflow_error("pCUT energy scale overflow");
-            for (const auto& [s, v] : state) output[node.depth][s] += factor * v;
+            for (const auto& [s, v] : state) output[node.depth][s] += node.coefficient * v;
             if (output[node.depth].size() > options.max_states) throw std::length_error("output state budget exceeded");
         }
         for (const auto& [change, next] : node.children) {
-            auto transformed = model.apply(change, state, options.max_states);
+            auto transformed = model.apply_scaled(change, state, options.max_states, model.gap());
             if (!transformed.empty()) visit(next, transformed);
         }
     };
     visit(0, {{input, 1.0}});
+    // Traverse with V/Delta, then restore units after summing each order.
+    for (unsigned n=1;n<=order_;++n) for (auto& [s,v] : output[n]) {
+        v *= model.gap();
+        if (!std::isfinite(v.real()) || !std::isfinite(v.imag()))
+            throw std::overflow_error("pCUT energy scale overflow");
+    }
     return output;
 }
 std::vector<Matrix> EffectiveOperator::block(const ClusterModel& model, const std::vector<State>& basis,
                                             SolverOptions options) const {
     const std::set<State> unique(basis.begin(), basis.end());
     if (unique.size() != basis.size()) throw std::invalid_argument("duplicate block basis state");
-    const auto size = static_cast<Eigen::Index>(basis.size());
-    std::vector<Matrix> result(order_+1, Matrix::Zero(size,size));
+    for (auto state : basis) if (state>=model.dimension()) throw std::out_of_range("block basis state");
+    auto result=detail::matrix_series(basis.size(),static_cast<std::size_t>(order_)+1,options.max_matrix_elements);
     for (std::size_t col = 0; col < basis.size(); ++col) {
         const auto action = apply(model, basis[col], options);
         for (unsigned n = 0; n <= order_; ++n)
@@ -89,14 +93,5 @@ std::vector<ParticleState> one_particle_basis(const ClusterModel& model) {
         local[site] = 0;
     }
     return basis;
-}
-std::vector<Matrix> one_particle_irreducible(const EffectiveOperator& effective, const ClusterModel& model,
-                                            SolverOptions options) {
-    std::vector<State> basis;
-    for (const auto& p : one_particle_basis(model)) basis.push_back(p.state);
-    auto block = effective.block(model, basis, options);
-    const auto e0 = effective.vacuum(model, options);
-    for (unsigned n = 0; n <= effective.order(); ++n) block[n].diagonal().array() -= e0[n];
-    return block;
 }
 }

@@ -50,17 +50,34 @@ struct EnumerationOptions {
     std::size_t max_clusters = 100'000;
     std::size_t max_subclusters = 5'000'000;
 };
-// Translation classes of actual colored embedded bond animals (no white graphs).
-// Each entry has one embedding per unit cell; rotations/reflections stay distinct.
+// Geometry-only translation classes of colored embedded edge animals.
+// Ordered interaction legs and basis labels define colors; matrices are not stored.
+class ClusterTopology {
+public:
+    ClusterTopology(const PeriodicLattice& lattice, unsigned max_edges, EnumerationOptions options = {});
+    [[nodiscard]] const std::vector<ClusterEntry>& entries() const noexcept { return entries_; }
+    [[nodiscard]] unsigned max_edges() const noexcept { return max_edges_; }
+    [[nodiscard]] bool matches(const PeriodicLattice& lattice) const noexcept;
+private:
+    unsigned dimension_;
+    std::size_t cell_size_;
+    std::vector<std::vector<Site>> legs_;
+    unsigned max_edges_;
+    std::vector<ClusterEntry> entries_;
+};
+// Numerical binding of reusable topology. Compiles each interaction type once.
 class ClusterCatalog {
 public:
     ClusterCatalog(PeriodicLattice lattice, unsigned max_edges, EnumerationOptions options = {});
+    ClusterCatalog(PeriodicLattice lattice, std::shared_ptr<const ClusterTopology> topology);
     [[nodiscard]] const PeriodicLattice& lattice() const noexcept { return lattice_; }
-    [[nodiscard]] const std::vector<ClusterEntry>& entries() const noexcept { return entries_; }
-    [[nodiscard]] unsigned max_edges() const noexcept { return max_edges_; }
+    [[nodiscard]] const std::shared_ptr<const ClusterTopology>& topology() const noexcept { return topology_; }
+    [[nodiscard]] const std::vector<ClusterEntry>& entries() const noexcept { return topology_->entries(); }
+    [[nodiscard]] unsigned max_edges() const noexcept { return topology_->max_edges(); }
+    [[nodiscard]] ClusterModel model(const Cluster& cluster) const;
 private:
     PeriodicLattice lattice_;
-    unsigned max_edges_;
-    std::vector<ClusterEntry> entries_;
+    std::shared_ptr<const ClusterTopology> topology_;
+    std::vector<ClusterModel> interactions_;
 };
 }

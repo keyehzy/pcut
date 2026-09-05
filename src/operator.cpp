@@ -1,4 +1,5 @@
 #include <pcut/operator.hpp>
+#include "detail.hpp"
 #include <algorithm>
 #include <cmath>
 #include <functional>
@@ -9,31 +10,12 @@
 
 namespace pcut {
 namespace {
-std::size_t matrix_size(std::size_t basis, std::size_t orders, std::size_t budget) {
-    if (orders == 0 || (basis && (basis > budget / basis || orders > budget / basis / basis)))
-        throw std::length_error("operator matrix-element budget exceeded");
-    if (basis > static_cast<std::size_t>(std::numeric_limits<Eigen::Index>::max()))
-        throw std::length_error("operator basis exceeds Eigen indexing");
-    return basis * basis * orders;
-}
 OperatorBlock empty_block(const ClusterModel& model, unsigned order,
                           std::optional<int> particles, OperatorOptions options) {
     OperatorBlock block{model.spaces(),zero_charge_basis(model,particles,options.max_basis,options.max_basis_visits),{}};
-    matrix_size(block.basis.size(),static_cast<std::size_t>(order)+1,options.max_matrix_elements);
-    const auto size=static_cast<Eigen::Index>(block.basis.size());
-    block.coefficients.assign(static_cast<std::size_t>(order)+1,Matrix::Zero(size,size));
+    block.coefficients=detail::matrix_series(block.basis.size(),static_cast<std::size_t>(order)+1,
+        std::min(options.max_matrix_elements,options.solver.max_matrix_elements));
     return block;
-}
-Coordinate translate(const Coordinate& a, const Coordinate& b, int sign=1) {
-    if (a.size()!=b.size()) throw std::invalid_argument("operator coordinate dimension mismatch");
-    Coordinate out(a.size());
-    for (std::size_t d=0; d<a.size(); ++d) {
-        const auto x=static_cast<long long>(a[d])+static_cast<long long>(sign)*b[d];
-        if (x<std::numeric_limits<int>::min() || x>std::numeric_limits<int>::max())
-            throw std::overflow_error("operator coordinate overflow");
-        out[d]=static_cast<int>(x);
-    }
-    return out;
 }
 void validate_block(const OperatorBlock& block, const ClusterModel& model) {
     std::set<State> unique;
@@ -90,7 +72,8 @@ OperatorBlock zero_charge_operator(const ClusterModel& model, const EffectiveOpe
     model.require_operator_grading();
     if (particles && !model.conserves_particles())
         throw std::invalid_argument("selected particle number is not conserved by the model");
-    auto result=empty_block(model,effective.order(),particles,options);
+    OperatorBlock result{model.spaces(),zero_charge_basis(model,particles,options.max_basis,options.max_basis_visits),{}};
+    options.solver.max_matrix_elements=std::min(options.solver.max_matrix_elements,options.max_matrix_elements);
     result.coefficients=effective.block(model,result.basis,options.solver);
     return result;
 }
@@ -102,89 +85,112 @@ Matrix OperatorBlock::evaluate(double lambda) const {
     for (auto it=coefficients.rbegin(); it!=coefficients.rend(); ++it) result=lambda*result+*it;
     return result;
 }
+namespace {
+// Basis setup is independent of an embedding and of subsequent coefficient updates.
+struct EmbeddingBasis {
+    ClusterModel model;
+    std::map<State,Eigen::Index> indices;
+    std::vector<std::vector<unsigned>> decoded;
+    bool graded=false;
+    explicit EmbeddingBasis(const OperatorBlock& block) : model(block.spaces,{}) {
+        validate_block(block,model);
+        for (const auto& space : block.spaces) graded |= !space.parity.empty();
+        if (graded) for (const auto& space : block.spaces) if (space.parity.empty())
+            throw std::invalid_argument("graded embedding needs parity on every site");
+        for (std::size_t i=0;i<block.basis.size();++i) {
+            indices.emplace(block.basis[i],static_cast<Eigen::Index>(i));
+            decoded.push_back(model.decode(block.basis[i]));
+        }
+    }
+    void require_child(const OperatorBlock& child) const {
+        std::size_t expected=1;
+        for (const auto& space : child.spaces) {
+            const auto zeros=static_cast<std::size_t>(std::count(space.charges.begin(),space.charges.end(),0));
+            if (expected>child.basis.size()/zeros)
+                throw std::invalid_argument("child operator must retain the full Q=0 basis");
+            expected*=zeros;
+        }
+        if (expected!=child.basis.size() || !std::is_sorted(child.basis.begin(),child.basis.end()))
+            throw std::invalid_argument("child operator must retain the full ordered Q=0 basis");
+        if (!graded) return;
+        std::vector<unsigned> parity(decoded.size());
+        for (std::size_t i=0;i<decoded.size();++i)
+            for (std::size_t s=0;s<child.spaces.size();++s) parity[i]^=child.spaces[s].parity[decoded[i][s]];
+        for (std::size_t i=0;i<decoded.size();++i) for (std::size_t j=0;j<decoded.size();++j)
+            if (parity[i]!=parity[j]) for (const auto& h : child.coefficients)
+                if (h(static_cast<Eigen::Index>(i),static_cast<Eigen::Index>(j))!=Complex{})
+                    throw std::invalid_argument("cannot embed a parity-odd Hamiltonian");
+    }
+};
+struct EmbeddingPlan {
+    const EmbeddingBasis& parent;
+    const EmbeddingBasis& child;
+    const std::vector<std::size_t>& map;
+    std::vector<std::pair<std::size_t,std::size_t>> inversions;
+    EmbeddingPlan(const EmbeddingBasis& p, const EmbeddingBasis& c, const std::vector<std::size_t>& m,
+                  std::size_t orders, std::size_t max_work) : parent(p), child(c), map(m) {
+        if (map.size()!=child.model.sites()) throw std::invalid_argument("operator embedding shape mismatch");
+        inversions=detail::gather_inversions(parent.model.sites(),map);
+        for (std::size_t s=0;s<map.size();++s) {
+            const auto& a=child.model.spaces()[s]; const auto& b=parent.model.spaces()[map[s]];
+            if (a.charges!=b.charges || a.particles!=b.particles || a.parity!=b.parity)
+                throw std::invalid_argument("incompatible embedded local spaces");
+        }
+        const auto nc=child.decoded.size(), np=parent.decoded.size();
+        if (nc && np && (np>max_work/nc || orders>max_work/nc/np))
+            throw std::length_error("operator embedding work budget exceeded");
+    }
+    void add(OperatorBlock& target, const OperatorBlock& source, Complex scale) const {
+        std::vector<unsigned> selected(map.size());
+        for (std::size_t j=0;j<parent.decoded.size();++j) {
+            auto local=parent.decoded[j];
+            for (std::size_t s=0;s<map.size();++s) selected[s]=local[map[s]];
+            const auto col=child.indices.at(child.model.encode(selected));
+            const int input_sign=parent.graded ? detail::gather_sign(target.spaces,local,inversions) : 1;
+            for (std::size_t i=0;i<child.decoded.size();++i) {
+                bool nonzero=false;
+                for (const auto& h : source.coefficients) nonzero |= h(static_cast<Eigen::Index>(i),col)!=Complex{};
+                if (!nonzero) continue;
+                for (std::size_t s=0;s<map.size();++s) local[map[s]]=child.decoded[i][s];
+                const auto row=parent.indices.find(parent.model.encode(local));
+                if (row==parent.indices.end()) continue;
+                const int sign=input_sign*(parent.graded ? detail::gather_sign(target.spaces,local,inversions) : 1);
+                for (std::size_t n=0;n<source.coefficients.size();++n)
+                    target.coefficients[n](row->second,static_cast<Eigen::Index>(j))+=
+                        scale*static_cast<double>(sign)*source.coefficients[n](static_cast<Eigen::Index>(i),col);
+            }
+        }
+    }
+};
+}
 void add_embedded_operator(OperatorBlock& parent, const OperatorBlock& child,
                            const std::vector<std::size_t>& map, Complex scale, std::size_t max_work) {
     if (&parent==&child) throw std::invalid_argument("operator embedding must not alias");
-    if (map.size()!=child.spaces.size() || parent.coefficients.size()!=child.coefficients.size() ||
+    if (parent.coefficients.size()!=child.coefficients.size() ||
         !std::isfinite(scale.real()) || !std::isfinite(scale.imag()))
         throw std::invalid_argument("operator embedding shape or scale mismatch");
-    const ClusterModel pm(parent.spaces,{}), cm(child.spaces,{});
-    validate_block(parent,pm); validate_block(child,cm);
-    std::set<std::size_t> used;
-    bool graded=false;
-    for (const auto& space : parent.spaces) graded |= !space.parity.empty();
-    for (std::size_t s=0; s<map.size(); ++s) {
-        if (map[s]>=parent.spaces.size() || !used.insert(map[s]).second)
-            throw std::invalid_argument("invalid operator vertex map");
-        const auto& a=child.spaces[s]; const auto& b=parent.spaces[map[s]];
-        if (a.charges!=b.charges || a.particles!=b.particles || a.parity!=b.parity)
-            throw std::invalid_argument("incompatible embedded local spaces");
-    }
-    if (graded) for (const auto& space : parent.spaces) if (space.parity.empty())
-        throw std::invalid_argument("graded embedding needs parity on every site");
-    std::size_t expected_basis=1;
-    for (const auto& space : child.spaces) {
-        const auto zeros=static_cast<std::size_t>(std::count(space.charges.begin(),space.charges.end(),0));
-        if (expected_basis>child.basis.size()/zeros)
-            throw std::invalid_argument("child operator must retain the full Q=0 basis");
-        expected_basis*=zeros;
-    }
-    // validate_block already checked uniqueness and Q=0 membership, so matching
-    // the tensor dimension proves completeness without re-enumerating states.
-    if (expected_basis!=child.basis.size() || !std::is_sorted(child.basis.begin(),child.basis.end()))
-        throw std::invalid_argument("child operator must retain the full ordered Q=0 basis");
-    const auto nc=child.basis.size(), np=parent.basis.size(), orders=child.coefficients.size();
-    if (nc && np && (np>max_work/nc || orders>max_work/nc/np))
-        throw std::length_error("operator embedding work budget exceeded");
-    std::map<State,Eigen::Index> child_index, parent_index;
-    std::vector<std::vector<unsigned>> decoded;
-    std::vector<unsigned> child_parity;
-    for (std::size_t i=0; i<nc; ++i) {
-        child_index.emplace(child.basis[i],static_cast<Eigen::Index>(i));
-        decoded.push_back(cm.decode(child.basis[i]));
-        unsigned p=0;
-        if (graded) for (std::size_t s=0; s<map.size(); ++s) p^=child.spaces[s].parity[decoded.back()[s]];
-        child_parity.push_back(p);
-    }
-    // Only even operators admit this identity-spectator embedding rule.
-    if (graded) for (std::size_t i=0; i<nc; ++i) for (std::size_t j=0; j<nc; ++j)
-        if (child_parity[i]!=child_parity[j]) for (const auto& h : child.coefficients)
-            if (h(static_cast<Eigen::Index>(i),static_cast<Eigen::Index>(j))!=Complex{})
-                throw std::invalid_argument("cannot embed a parity-odd Hamiltonian");
-    for (std::size_t i=0; i<np; ++i) parent_index.emplace(parent.basis[i],static_cast<Eigen::Index>(i));
-    for (std::size_t j=0; j<np; ++j) {
-        auto local=pm.decode(parent.basis[j]);
-        std::vector<unsigned> selected(map.size());
-        for (std::size_t s=0; s<map.size(); ++s) selected[s]=local[map[s]];
-        const auto col=child_index.at(cm.encode(selected));
-        const int input_sign=graded ? graded_gather_sign(parent.spaces,local,map) : 1;
-        for (std::size_t i=0; i<nc; ++i) {
-            bool nonzero=false;
-            for (const auto& h : child.coefficients) nonzero |= h(static_cast<Eigen::Index>(i),col)!=Complex{};
-            if (!nonzero) continue;
-            for (std::size_t s=0; s<map.size(); ++s) local[map[s]]=decoded[i][s];
-            const auto row=parent_index.find(pm.encode(local));
-            if (row==parent_index.end()) continue;
-            const int sign=input_sign*(graded ? graded_gather_sign(parent.spaces,local,map) : 1);
-            for (std::size_t n=0; n<orders; ++n)
-                parent.coefficients[n](row->second,static_cast<Eigen::Index>(j))+=
-                    scale*static_cast<double>(sign)*child.coefficients[n](static_cast<Eigen::Index>(i),col);
-        }
-    }
+    const EmbeddingBasis p(parent), c(child);
+    c.require_child(child);
+    EmbeddingPlan(p,c,map,child.coefficients.size(),max_work).add(parent,child,scale);
 }
 LinkedOperator linked_zero_charge(const ClusterCatalog& catalog, const EffectiveOperator& effective,
                                   OperatorOptions options) {
     if (catalog.max_edges()<effective.order()) throw std::invalid_argument("catalog must cover operator order");
     LinkedOperator result{catalog.lattice(),effective.order(),{}};
     std::size_t stored=0;
+    std::vector<EmbeddingBasis> bases;
     for (const auto& entry : catalog.entries()) {
-        const auto model=cluster_model(result.lattice,entry.edges);
+        if (entry.edges.size()>effective.order()) break;
+        const auto model=catalog.model(entry.edges);
         auto remaining=options; remaining.max_matrix_elements-=stored;
         auto block=zero_charge_operator(model,effective,{},remaining);
-        stored+=matrix_size(block.basis.size(),block.coefficients.size(),remaining.max_matrix_elements);
+        stored+=detail::matrix_size(block.basis.size(),block.coefficients.size(),remaining.max_matrix_elements);
         block.coefficients[0].setZero(); // only bare reference constants at Q=0
+        EmbeddingBasis parent(block);
         for (const auto& sub : entry.subclusters)
-            add_embedded_operator(block,result.weights.at(sub.index).block,sub.vertex_map,-1,options.max_embedding_work);
+            EmbeddingPlan(parent,bases.at(sub.index),sub.vertex_map,block.coefficients.size(),options.max_embedding_work)
+                .add(block,result.weights.at(sub.index).block,-1);
+        bases.push_back(std::move(parent));
         result.weights.push_back({entry.edges,entry.sites,std::move(block)});
     }
     return result;
@@ -209,24 +215,27 @@ OperatorBlock assemble_operator(const LinkedOperator& linked, const std::vector<
     const ClusterModel model(spaces,{},linked.lattice.gap);
     auto result=empty_block(model,linked.order,particles,options);
     result.coefficients[0].diagonal().setConstant(model.vacuum_energy());
+    const EmbeddingBasis parent(result);
     for (const auto& weight : linked.weights) {
         if (weight.edges.empty() || weight.sites!=vertices(linked.lattice,weight.edges) ||
             weight.block.coefficients.size()!=static_cast<std::size_t>(linked.order)+1)
             throw std::invalid_argument("invalid linked operator weight");
+        const EmbeddingBasis child(weight.block);
+        child.require_child(weight.block);
         // Fix one colored edge. Every matching target edge gives one translation,
         // so embeddings retain multiplicity without rotations or automorphism factors.
         const auto& anchor=weight.edges.front();
         for (const auto& target : edges) if (target.type==anchor.type) {
-            const auto shift=translate(target.origin,anchor.origin,-1);
+            const auto shift=detail::translate(target.origin,anchor.origin,-1);
             bool exists=true;
             for (const auto& edge : weight.edges)
-                exists &= available.contains({edge.type,translate(edge.origin,shift)});
+                exists &= available.contains({edge.type,detail::translate(edge.origin,shift)});
             if (!exists) continue;
             std::vector<std::size_t> map;
             for (auto site : weight.sites) {
-                site.cell=translate(site.cell,shift); map.push_back(indices.at(site));
+                site.cell=detail::translate(site.cell,shift); map.push_back(indices.at(site));
             }
-            add_embedded_operator(result,weight.block,map,1,options.max_embedding_work);
+            EmbeddingPlan(parent,child,map,weight.block.coefficients.size(),options.max_embedding_work).add(result,weight.block,1);
         }
     }
     return result;

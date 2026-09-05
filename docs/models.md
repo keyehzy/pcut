@@ -64,12 +64,38 @@ It must return `order+1` coefficients, with zero constant term; pass the referen
 per cell separately. Raw excited-sector energies and raw block traces are not
 usually cluster additive and must not be used without irreducible subtraction.
 
-For coupling sweeps, reuse the coefficient table and effective operator. Build a
-new lattice and catalog when matrices change; the catalog owns its lattice copy.
+For coupling sweeps, reuse the coefficient table, effective operator and geometry:
+
+```cpp
+const auto topology = std::make_shared<pcut::ClusterTopology>(lattice, 4);
+for (double coupling : {0.2, 0.4, 0.6}) {
+    auto bound = lattice;
+    bound.interactions[0].matrix = coupling * v;
+    const pcut::ClusterCatalog catalog(std::move(bound), topology);
+    const auto result = pcut::linked_expand(catalog, effective);
+}
+```
+
+An existing catalog exposes its shared geometry with `catalog.topology()`.
+Rebinding checks spatial dimension, unit-cell site count and every ordered
+interaction leg, including interaction type. Matrices, gap, reference energies
+and local spaces belong to each numerical binding and are validated there.
+`catalog.model(edges)` shares compiled transition tables by interaction type;
+use it for repeated finite cluster evaluations too. Models retain shared tables
+safely after the catalog is destroyed. The free `cluster_model(lattice, edges)`
+remains a direct finite-model constructor and compiles the supplied terms.
 The model's actual charge alphabet must be covered by the coefficient table.
 Zero-valued couplings may reduce the actual alphabet, so using the union alphabet
 across a sweep avoids rebuilding coefficients. This is still a univariate series
 in lambda; no polynomial interpolation or symbolic dependence is implied.
+
+Dense blocks use `SolverOptions::max_matrix_elements`, counting all orders;
+linked options also count retained weights and output series cumulatively.
+Both default to 32 million complex entries (about 512 MB of payload). When
+raising limits for a large calculation, raise both the linked limit and its
+nested solver limit as needed. Bloch series accept an optional matrix-entry
+budget. See [design.md](design.md) for accounting and scratch-memory limits.
+Only exact zeros are removed; there is no amplitude-pruning tolerance.
 
 ## Repulsive Hubbard model
 

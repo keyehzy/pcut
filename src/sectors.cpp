@@ -1,4 +1,5 @@
 #include <pcut/sectors.hpp>
+#include "detail.hpp"
 #include <algorithm>
 #include <functional>
 #include <limits>
@@ -42,12 +43,7 @@ Kernel normalize_kernel(Kernel kernel) {
         if (first || e.site.cell<anchor) { anchor=e.site.cell; first=false; }
     }
     for (auto* list : {&kernel.output,&kernel.input}) for (auto& e : *list)
-        for (std::size_t d=0;d<anchor.size();++d) {
-            const auto v=static_cast<long long>(e.site.cell[d])-anchor[d];
-            if (v<std::numeric_limits<int>::min() || v>std::numeric_limits<int>::max())
-                throw std::overflow_error("kernel coordinate overflow");
-            e.site.cell[d]=static_cast<int>(v);
-        }
+        e.site.cell=detail::translate(e.site.cell,anchor,-1);
     return kernel;
 }
 }
@@ -57,6 +53,7 @@ IrreducibleSectors irreducible_sectors(const ClusterModel& model, const Effectiv
     if (model.fermionic()) throw std::invalid_argument("tensor sector kernels do not support graded fermionic terms");
     IrreducibleSectors result;
     result.basis=sector_basis(model,max_charge,options.max_basis);
+    options.solver.max_matrix_elements=std::min(options.solver.max_matrix_elements,options.max_matrix_elements);
     result.kernels=effective.block(model,result.basis,options.solver);
     std::map<State,Eigen::Index> indices;
     std::vector<std::vector<unsigned>> decoded;
@@ -96,12 +93,15 @@ LinkedSectors linked_expand_sectors(const ClusterCatalog& catalog, const Effecti
     for (const auto& space : lattice.cell) space.require_product_vacuum();
     for (const auto& term : lattice.interactions) if (term.fermionic)
         throw std::invalid_argument("tensor sector kernels do not support graded fermionic terms");
+    detail::StorageBudget storage{options.max_matrix_elements};
+    storage.take(static_cast<std::size_t>(order)+1);
     LinkedSectors result{Series(order+1),{}};
     for (std::size_t b=0;b<lattice.cell.size();++b) {
         const auto& space=lattice.cell[b];
         result.energy_per_cell[0]+=space.vacuum_energy;
         for (unsigned l=1;l<space.charges.size();++l) if (static_cast<unsigned>(space.charges[l])<=max_charge) {
             const Excitation e{{Coordinate(lattice.dimension,0),b},l};
+            storage.take(static_cast<std::size_t>(order)+1);
             Series value(order+1); value[0]=lattice.gap*space.charges[l];
             result.kernels.emplace(Kernel{{e},{e}},std::move(value));
         }
@@ -110,8 +110,11 @@ LinkedSectors linked_expand_sectors(const ClusterCatalog& catalog, const Effecti
     struct Weight { IrreducibleSectors sectors; std::vector<std::vector<unsigned>> local; };
     std::vector<Weight> weights;
     for (const auto& entry : catalog.entries()) {
-        const auto model=cluster_model(lattice,entry.edges);
-        Weight weight{irreducible_sectors(model,effective,max_charge,options),{}};
+        if (entry.edges.size()>order) break;
+        const auto model=catalog.model(entry.edges);
+        auto remaining=options; remaining.max_matrix_elements=storage.remaining;
+        Weight weight{irreducible_sectors(model,effective,max_charge,remaining),{}};
+        storage.matrices(weight.sectors.basis.size(),static_cast<std::size_t>(order)+1);
         weight.sectors.kernels[0].setZero(); // embed bare on-site terms separately
         std::map<State,Eigen::Index> indices;
         for (std::size_t i=0;i<weight.sectors.basis.size();++i) {
@@ -126,9 +129,7 @@ LinkedSectors linked_expand_sectors(const ClusterCatalog& catalog, const Effecti
                 for (std::size_t s=0;s<local.size();++s) parent[sub.vertex_map[s]]=local[s];
                 map.push_back(indices.at(model.encode(parent)));
             }
-            for (unsigned n=1;n<=order;++n)
-                for (std::size_t i=0;i<map.size();++i) for (std::size_t j=0;j<map.size();++j)
-                    weight.sectors.kernels[n](map[i],map[j])-=child.sectors.kernels[n](static_cast<Eigen::Index>(i),static_cast<Eigen::Index>(j));
+            detail::subtract_mapped(weight.sectors.kernels,child.sectors.kernels,map);
         }
         for (unsigned n=1;n<=order;++n) result.energy_per_cell[n]+=weight.sectors.kernels[n](0,0);
         for (std::size_t i=0;i<weight.sectors.basis.size();++i) for (std::size_t j=0;j<weight.sectors.basis.size();++j) {
@@ -141,6 +142,10 @@ LinkedSectors linked_expand_sectors(const ClusterCatalog& catalog, const Effecti
             }
             if (!nonzero) continue;
             const auto key=normalize_kernel({excitations(model,weight.sectors.basis[i],entry.sites),excitations(model,weight.sectors.basis[j],entry.sites)});
+            if (!result.kernels.contains(key)) {
+                if (result.kernels.size()>=options.max_kernels) throw std::length_error("linked kernel budget exceeded");
+                storage.take(static_cast<std::size_t>(order)+1);
+            }
             auto& target=result.kernels[key];
             if (target.empty()) target.resize(order+1);
             for (unsigned n=1;n<=order;++n) target[n]+=value[n];

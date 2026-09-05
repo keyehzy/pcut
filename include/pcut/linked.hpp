@@ -14,7 +14,8 @@ struct ScalarExpansion {
 // corrections (order zero must be zero); caller supplies the on-site reference.
 [[nodiscard]] ScalarExpansion linked_scalar(const ClusterCatalog& catalog, unsigned order,
                                              const ClusterEvaluator& evaluate_cluster,
-                                             Complex reference_per_cell = 0);
+                                             Complex reference_per_cell = 0,
+                                             std::size_t max_matrix_elements = 32'000'000);
 struct Flavor {
     std::size_t basis;
     unsigned local;
@@ -29,6 +30,8 @@ struct Hopping {
 struct LinkedOptions {
     bool one_particle = true;
     SolverOptions solver;
+    // Cumulative complex entries in retained weights and result series.
+    std::size_t max_matrix_elements = 32'000'000;
 };
 struct LinkedResult {
     Series energy_per_cell;
@@ -37,8 +40,10 @@ struct LinkedResult {
     std::vector<Series> vacuum_weights;
     // k is in reciprocal unit-cell coordinates (radians). Fourier convention:
     // |k,a> = sum_R exp(i k.R)|R,a>, so H_ab(k)=sum_d t_ab(d)exp(-i k.d).
-    [[nodiscard]] std::vector<Matrix> bloch_series(const std::vector<double>& k) const;
-    [[nodiscard]] Matrix bloch(const std::vector<double>& k, double lambda) const;
+    [[nodiscard]] std::vector<Matrix> bloch_series(const std::vector<double>& k,
+                                                    std::size_t max_matrix_elements = 32'000'000) const;
+    [[nodiscard]] Matrix bloch(const std::vector<double>& k, double lambda,
+                               std::size_t max_matrix_elements = 32'000'000) const;
     unsigned dimension = 0;
 };
 [[nodiscard]] std::vector<int> charge_changes(const PeriodicLattice& lattice);

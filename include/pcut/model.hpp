@@ -3,6 +3,7 @@
 #include <complex>
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -35,7 +36,7 @@ struct LocalTerm {
 class ClusterModel {
 public:
     ClusterModel(std::vector<LocalSpace> spaces, std::vector<LocalTerm> terms,
-                 double gap = 1.0, double zero_tolerance = 0.0);
+                 double gap = 1.0);
     [[nodiscard]] const std::vector<LocalSpace>& spaces() const noexcept { return spaces_; }
     [[nodiscard]] std::size_t sites() const noexcept { return spaces_.size(); }
     [[nodiscard]] State dimension() const noexcept { return dimension_; }
@@ -55,13 +56,20 @@ public:
                                     std::size_t max_states = 1'000'000) const;
     [[nodiscard]] Matrix dense_hamiltonian(double lambda, State max_dimension = 4096) const;
 private:
+    friend class EffectiveOperator;
+    friend class ClusterCatalog;
+    static ClusterModel embedded(std::vector<LocalSpace> spaces,
+        const std::vector<std::pair<const ClusterModel*,std::vector<std::size_t>>>& terms, double gap);
+    [[nodiscard]] SparseState apply_scaled(int change, const SparseState& state,
+                                            std::size_t max_states, double divisor) const;
     struct Transition { State output; Complex value; };
     struct CompiledTerm {
         std::vector<std::size_t> sites;
         std::vector<State> local_stride;
         bool fermionic = false;
         std::vector<std::pair<std::size_t, std::size_t>> inversions;
-        std::map<int, std::vector<std::vector<Transition>>> by_change;
+        using Transitions = std::map<int, std::vector<std::vector<Transition>>>;
+        std::shared_ptr<const Transitions> by_change;
     };
     std::vector<LocalSpace> spaces_;
     std::vector<State> strides_;

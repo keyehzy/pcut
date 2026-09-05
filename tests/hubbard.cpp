@@ -361,3 +361,35 @@ TEST_CASE("Half and quarter finite-system spectra converge to independent Hubbar
         }
     }
 }
+
+TEST_CASE("First-order Hubbard linking ignores larger catalog animals", "[hubbard][budget]") {
+    const auto lattice=pcut::models::hubbard_chain();
+    const pcut::EffectiveOperator first(pcut::Coefficients(pcut::charge_changes(lattice),1));
+    pcut::OperatorOptions options; options.max_matrix_elements=162;
+    const auto small=pcut::linked_zero_charge(pcut::ClusterCatalog(lattice,1),first,options);
+    const auto large=pcut::linked_zero_charge(pcut::ClusterCatalog(lattice,2),first,options);
+    REQUIRE(small.weights.size()==1);
+    REQUIRE(large.weights.size()==1);
+    for (unsigned n=0;n<=1;++n) REQUIRE(large.weights[0].block.coefficients[n]==small.weights[0].block.coefficients[n]);
+    options.max_matrix_elements=161;
+    REQUIRE_THROWS_AS(pcut::linked_zero_charge(pcut::ClusterCatalog(lattice,2),first,options),std::length_error);
+    const pcut::EffectiveOperator zero(pcut::Coefficients(pcut::charge_changes(lattice),0));
+    REQUIRE(pcut::linked_zero_charge(pcut::ClusterCatalog(lattice,2),zero,options).weights.empty());
+}
+TEST_CASE("Shared compiled Hubbard transitions preserve spectator signs", "[hubbard][sweep]") {
+    auto lattice=pcut::models::hubbard_chain();
+    lattice.interactions[0].legs[1].cell={2};
+    std::reverse(lattice.interactions[0].legs.begin(),lattice.interactions[0].legs.end());
+    const pcut::ClusterCatalog initial(lattice,2);
+    lattice.interactions[0].matrix*=0.7;
+    lattice.gap=1.3;
+    const pcut::ClusterCatalog rebound(lattice,initial.topology());
+    // Noncontiguous bond with a spectator inserted by the other edge.
+    const pcut::Cluster edges{{0,{0}},{0,{1}}};
+    REQUIRE(rebound.model(edges).dense_hamiltonian(0.2).isApprox(
+        pcut::cluster_model(lattice,edges).dense_hamiltonian(0.2),1e-13));
+    auto model=rebound.model({{0,{0}},{0,{1}}});
+    const auto expected=pcut::zero_charge_operator(pcut::cluster_model(lattice,{{0,{0}},{0,{1}}}),fourth());
+    const auto actual=pcut::zero_charge_operator(model,fourth());
+    for (unsigned n=0;n<=4;++n) near(actual.coefficients[n],expected.coefficients[n]);
+}

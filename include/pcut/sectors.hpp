@@ -7,6 +7,8 @@ struct SectorOptions {
     std::size_t max_contractions = 10'000'000;
     std::size_t max_kernels = 1'000'000;
     SolverOptions solver;
+    // Cumulative complex entries in retained weights and result series.
+    std::size_t max_matrix_elements = 32'000'000;
 };
 struct IrreducibleSectors {
     std::vector<State> basis; // all product states with Q <= max_charge, ordered by Q then encoding
