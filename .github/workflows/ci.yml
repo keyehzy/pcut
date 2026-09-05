@@ -1,0 +1,25 @@
+name: C++ checks
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        preset: [release, sanitize]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies
+        run: sudo apt-get update && sudo apt-get install -y ninja-build libeigen3-dev libboost-dev
+      - run: cmake --preset ${{ matrix.preset }}
+      - run: cmake --build --preset ${{ matrix.preset }} -j 2
+      - run: ctest --preset ${{ matrix.preset }}
+      - name: Package consumer
+        if: matrix.preset == 'release'
+        run: |
+          cmake --install build/release --prefix "$PWD/build/install"
+          cmake -S tests/consumer -B build/consumer -G Ninja -DCMAKE_PREFIX_PATH="$PWD/build/install"
+          cmake --build build/consumer
+          build/consumer/consumer
+      - name: Eighth-order literature benchmark
+        if: matrix.preset == 'release'
+        run: python3 scripts/benchmark.py --executable build/release/pcut_chain

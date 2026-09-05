@@ -1,0 +1,14 @@
+[
+  {
+    "file": "references/sources/cond-mat-9906243.tar",
+    "sha256": "842d88285ade7ef18c91a61e841ef0f1ab4471afa7d51d974d32c67c796213e7"
+  },
+  {
+    "file": "references/sources/1505.02975.tar",
+    "sha256": "60df372d2fdf93f2aca93c81ec60d3fe1b5dd3ef730e4f1802b984ed070965ed"
+  },
+  {
+    "file": "references/sources/cond-mat-0306333.tar",
+    "sha256": "41140524bca83806aa314c889af952a31a04c9d7262fb9ecdf3155131568b202"
+  }
+]
