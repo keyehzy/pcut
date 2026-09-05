@@ -6,3 +6,4 @@
 #include <pcut/model.hpp>
 #include <pcut/models.hpp>
 #include <pcut/sectors.hpp>
+#include <pcut/operator.hpp>

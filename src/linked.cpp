@@ -44,6 +44,7 @@ LinkedResult linked_expand(const ClusterCatalog& catalog, const EffectiveOperato
     const auto order = effective.order();
     check_order(catalog,order);
     const auto& lattice = catalog.lattice();
+    for (const auto& space : lattice.cell) space.require_product_vacuum();
     LinkedResult result;
     result.dimension = lattice.dimension;
     result.energy_per_cell.resize(order+1);

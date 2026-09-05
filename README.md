@@ -11,7 +11,9 @@ The implementation supports the standard pCUT class
 H(\lambda)=E_{\rm ref}+\Delta Q+\lambda V,\qquad \Delta>0,
 \]
 
-where `Q` has nonnegative integer local eigenvalues and a unique product vacuum.
+where `Q` has nonnegative integer local eigenvalues. The vacuum and particle
+drivers require a unique product vacuum; the dedicated operator-valued driver
+also supports a degenerate local charge-zero manifold.
 Models supply local Hilbert spaces and complex Hermitian interaction matrices.
 Interactions may have arbitrary finite support, ordered tensor legs, different
 coupling strengths, and different site species. Periodic lattices can have
@@ -75,6 +77,21 @@ uses Boost arbitrary-precision rationals; model evaluation uses complex doubles.
 Tables and effective programs can be reused across geometries and coupling sweeps
 that share a charge-change alphabet.
 
+For the repulsive spinful Hubbard model, `models::hubbard_chain()` and
+`models::hubbard_square()` use `H/U = Q + (t/U) V`. The dedicated
+`linked_zero_charge` API returns operators throughout the no-doublon manifold;
+`assemble_operator` selects electron number in a finite assembled problem.
+Half filling is `Ne/L=1`, quarter filling is `Ne/L=1/2`. Projected hopping,
+exchange, three-site processes and all contributions through fourth order,
+including square ring exchange, are validated. See the [Hubbard guide](docs/hubbard.md)
+for conventions, public APIs, resource limits, and infinite-coupling versus
+finite-spectrum distinctions.
+
+```sh
+build/release/pcut_hubbard --lattice chain --filling half --order 4
+build/release/pcut_hubbard --lattice square --filling quarter --order 4
+```
+
 For new models, define `LocalSpace`, `Interaction`, and `PeriodicLattice`.
 For finite systems, use `ClusterModel` directly. `EffectiveOperator::apply` and
 `block` work in any chosen charge sector, retaining all reachable intermediate
@@ -94,7 +111,8 @@ Downstream CMake projects use `find_package(pcut CONFIG REQUIRED)` and link
 ## Validation and scope
 
 The tests check 602 exact reference coefficients, analytic two-level and Ising
-models, finite-system exact diagonalization, graph counts and embedded
+models, Hubbard operators through fourth order at half and quarter filling,
+finite-system exact diagonalization, graph counts and embedded
 multiplicities, complex hopping, multi-particle kernels, and the dimerized /
 frustrated chain's vacuum and dispersion series through sixth order.
 [Validation details](docs/validation.md) explain units and a factor-of-two
@@ -107,8 +125,8 @@ charge alphabet, and cluster complexity. Explicit budgets reject oversized jobs.
 The default universal-word budget accommodates order eight for `{-2,-1,0,1,2}`;
 the library accepts larger user budgets. Sparse tensor-state IDs are 64-bit.
 Finite local matrices must be supplied, including any truncation of bosonic spaces
-and any fermionic parity strings. Couplings are numerical ratios multiplying one
-formal expansion parameter; symbolic multivariate polynomials, transformed
+and statistics metadata for graded fermionic terms. Couplings are numerical ratios
+multiplying one formal expansion parameter; symbolic multivariate polynomials, transformed
 observables, graph-isomorphism caching, and white graphs are not implemented.
 
 ## References
@@ -119,3 +137,6 @@ Original LaTeX sources, archives, and SHA-256 checksums are in
 - [Coester and Schmidt, Optimizing linked cluster expansions by white graphs](https://arxiv.org/abs/1505.02975).
 - [Knetter and Uhrig, Perturbation Theory by Flow Equations: Dimerized and Frustrated S=1/2 Chain](https://arxiv.org/abs/cond-mat/9906243).
 - [Knetter, Schmidt and Uhrig, The Structure of Operators in Effective Particle-Conserving Models](https://arxiv.org/abs/cond-mat/0306333).
+
+- [Chernyshev et al., Higher order effective low-energy theories](https://arxiv.org/abs/cond-mat/0407255).
+- [Delannoy et al., Néel order, ring exchange and charge fluctuations in the half-filled Hubbard model](https://arxiv.org/abs/cond-mat/0412033).

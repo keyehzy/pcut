@@ -53,6 +53,8 @@ Kernel normalize_kernel(Kernel kernel) {
 }
 IrreducibleSectors irreducible_sectors(const ClusterModel& model, const EffectiveOperator& effective,
                                       unsigned max_charge, SectorOptions options) {
+    model.require_product_vacuum();
+    if (model.fermionic()) throw std::invalid_argument("tensor sector kernels do not support graded fermionic terms");
     IrreducibleSectors result;
     result.basis=sector_basis(model,max_charge,options.max_basis);
     result.kernels=effective.block(model,result.basis,options.solver);
@@ -91,6 +93,9 @@ LinkedSectors linked_expand_sectors(const ClusterCatalog& catalog, const Effecti
     if (catalog.max_edges()<effective.order()) throw std::invalid_argument("catalog does not cover perturbation order");
     const auto& lattice=catalog.lattice();
     const auto order=effective.order();
+    for (const auto& space : lattice.cell) space.require_product_vacuum();
+    for (const auto& term : lattice.interactions) if (term.fermionic)
+        throw std::invalid_argument("tensor sector kernels do not support graded fermionic terms");
     LinkedSectors result{Series(order+1),{}};
     for (std::size_t b=0;b<lattice.cell.size();++b) {
         const auto& space=lattice.cell[b];

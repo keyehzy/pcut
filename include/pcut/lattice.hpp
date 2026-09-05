@@ -14,6 +14,7 @@ struct Site {
 struct Interaction {
     std::vector<Site> legs; // ordered offsets and unit-cell basis labels
     Matrix matrix;
+    bool fermionic = false; // even operator in ordered-leg Fock basis
 };
 struct PeriodicLattice {
     unsigned dimension = 1;

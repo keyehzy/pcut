@@ -33,7 +33,9 @@ storage. The default drivers execute serially.
 
 ## Local Hilbert spaces
 
-`LocalSpace::charges[0]` is zero and every other charge is a positive integer.
+`LocalSpace::charges[0]` is zero and every charge is a nonnegative integer.
+Vacuum-dependent drivers explicitly require every other charge to be positive;
+the operator-valued charge-zero driver admits local degeneracy.
 The physical on-site spectrum is `vacuum_energy + Delta*charges[i]`, with a common
 positive `Delta`. Thus degeneracies and missing levels are allowed; arbitrary
 incommensurate spacings are not. A tensor state uses mixed-radix 64-bit encoding.
@@ -42,9 +44,12 @@ are reached. No full tensor-space matrix is allocated in the pCUT solver.
 
 Each `LocalTerm` matrix is finite and Hermitian. Tensor leg zero is the least
 significant local index. This convention applies both to matrix construction and
-embedding, including reversed legs and unequal local dimensions. Explicit
-fermionic parity strings must be part of the supplied operator support. The
-library does not infer exchange statistics or choose a bosonic cutoff.
+embedding, including reversed legs and unequal local dimensions. Optional
+`particles` and `parity` metadata specify electron number and Z2 grading.
+Even matrices marked `fermionic` use ordered-leg Fock bases and graded gathering
+permutations to insert spectator signs. Unmarked terms use ordinary tensor
+embedding. The library does not choose a bosonic cutoff. The complete Hubbard
+Fock convention is in [hubbard.md](hubbard.md).
 
 `ClusterModel::dense_hamiltonian` is a dimension-limited validation helper;
 Eigen diagonalization is used only in tests and for the small Bloch matrices.
@@ -114,10 +119,23 @@ higher-sector interactions require a correspondingly larger external basis.
 Independent budgets bound external basis size, spectator subsets, and stored
 translation kernels. Tiny roundoff residues are retained, not silently pruned.
 
+## Degenerate charge-zero operator linking
+
+`linked_zero_charge` stores complete Q=0 operator matrices on each connected
+colored edge set. It subtracts every embedded connected-subcluster weight with
+identity spectators and graded permutation signs, without vacuum or
+particle-irreducible subtraction. Even disjoint subsystem Hamiltonians and their
+sign generators add, and their Q=0 projectors factor, so this operator is cluster
+additive. Bare reference constants are assembled separately. Electron number is
+selected only in finite evaluation, never separately in linked subclusters.
+See [hubbard.md](hubbard.md) for the proof, units, fourth-order unitary convention,
+public APIs and validation.
+
 ## Explicit limitations
 
 - One formal expansion parameter, with arbitrary fixed numerical coupling ratios.
-- Finite local Hilbert spaces, a unique product vacuum, and equidistant H0.
+- Finite local Hilbert spaces and an integer equidistant H0 charge ladder.
+  A unique product vacuum is required for the vacuum/particle drivers.
 - Sparse state encoding, coefficient generation, cluster enumeration and sector
   matrices have resource budgets; failure throws an exception instead of dropping
   states or clusters. Exact-rational arithmetic and double-valued matrix elements
@@ -125,4 +143,5 @@ translation kernels. Tiny roundoff residues are retained, not silently pruned.
 - Large local matrices are currently supplied densely and compiled into sparse
   transitions; a matrix-free local-operator frontend is a possible extension.
 - No resummation, transformed observables, automatic statistics, white graphs,
-  graph-isomorphism reduction, or built-in distributed execution.
+  graph-isomorphism reduction, or built-in distributed execution. Fermionic
+  statistics are explicit metadata, not inferred from arbitrary tensor matrices.

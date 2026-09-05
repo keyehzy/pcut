@@ -112,3 +112,22 @@ contention from concurrent compilation.
 These checks establish the finite-order coefficients and embedding conventions.
 They do not establish convergence at lambda=1, behavior across a phase transition,
 or accuracy of unimplemented resummation methods.
+
+## Hubbard validation
+
+`tests/hubbard.cpp` checks the full no-doublon operator through fourth order.
+Independent global Fock creation matrices validate nonadjacent and reversed-leg
+hopping, exchange and three-site correlated hopping. The dimer matches its
+analytic singlet and one-electron Hamiltonians. Operator subtraction reconstructs
+connected and disconnected finite systems, including permuted square embeddings
+at half and quarter filling. All low-energy eigenvalues of independently built
+four-site Hubbard Hamiltonians converge to the truncated expansion as `t/U`
+decreases.
+
+Exact rational word fixtures match Chernyshev et al.'s fourth-order CT1 result
+with the sign-generator rotation `gamma=1/4`. The half-filled matrix also matches
+Delannoy et al.'s `Hs4`. Infinite-square weights yield `J1=4x²-24x⁴`,
+`J2=J3=4x⁴`, `Jc=80x⁴` in units U, by Pauli trace projection, without fitting.
+The full connected plaquette matrix, including pair corrections and its constant,
+is checked. [The Hubbard guide](hubbard.md) specifies the effective-Hamiltonian
+convention and the distinction between infinite couplings and finite spectra.

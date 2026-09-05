@@ -32,7 +32,7 @@ std::array<std::array<Matrix,3>,2> dimer_spins() {
 }
 LocalSpace spin_dimer(double J) {
     if (!std::isfinite(J) || J <= 0) throw std::invalid_argument("J must be positive and finite");
-    return {{0,1,1,1},-0.75*J,"spin-1/2 dimer"};
+    return {{0,1,1,1},-0.75*J,"spin-1/2 dimer",{},{} };
 }
 Matrix dimer_bond(double alpha, double J) {
     if (!std::isfinite(alpha)) throw std::invalid_argument("alpha must be finite");
@@ -51,6 +51,6 @@ PeriodicLattice dimerized_chain(double alpha, double J) {
 PeriodicLattice ising_chain(double coupling) {
     if (!std::isfinite(coupling)) throw std::invalid_argument("coupling must be finite");
     Matrix x(2,2); x << 0,1,1,0;
-    return {1,{{{0,1},0,"hardcore spin"}},{{{{{0},0},{{1},0}},-coupling*tensor(x,x)}},1.0};
+    return {1,{{{0,1},0,"hardcore spin",{},{} }},{{{{{0},0},{{1},0}},-coupling*tensor(x,x)}},1.0};
 }
 }

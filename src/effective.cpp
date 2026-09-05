@@ -67,6 +67,7 @@ std::vector<Matrix> EffectiveOperator::block(const ClusterModel& model, const st
     return result;
 }
 Series EffectiveOperator::vacuum(const ClusterModel& model, SolverOptions options) const {
+    model.require_product_vacuum();
     const auto action = apply(model, 0, options);
     Series result(order_+1);
     for (unsigned n = 0; n <= order_; ++n) {
@@ -76,6 +77,7 @@ Series EffectiveOperator::vacuum(const ClusterModel& model, SolverOptions option
     return result;
 }
 std::vector<ParticleState> one_particle_basis(const ClusterModel& model) {
+    model.require_product_vacuum();
     std::vector<ParticleState> basis;
     std::vector<unsigned> local(model.sites(), 0);
     for (std::size_t site = 0; site < model.sites(); ++site) {

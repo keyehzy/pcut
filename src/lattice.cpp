@@ -42,7 +42,7 @@ void PeriodicLattice::validate() const {
             spaces.push_back(cell[site.basis]);
         }
         // Reuse all operator and Hilbert-space validation.
-        const ClusterModel checked(std::move(spaces), {{std::move(legs), interaction.matrix}}, gap);
+        const ClusterModel checked(std::move(spaces), {{std::move(legs), interaction.matrix, interaction.fermionic}}, gap);
         (void)checked;
     }
 }
@@ -90,6 +90,7 @@ ClusterModel cluster_model(const PeriodicLattice& lattice, const Cluster& cluste
         for (const auto& s : edge_vertices(lattice,e))
             t.sites.push_back(static_cast<std::size_t>(std::lower_bound(sites.begin(), sites.end(),s)-sites.begin()));
         t.matrix = lattice.interactions.at(e.type).matrix;
+        t.fermionic = lattice.interactions.at(e.type).fermionic;
         terms.push_back(std::move(t));
     }
     return {std::move(spaces), std::move(terms), lattice.gap};

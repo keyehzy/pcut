@@ -52,7 +52,7 @@ TEST_CASE("Finite dimer spectrum agrees with independent exact diagonalization",
 }
 TEST_CASE("Model contracts reject malformed input", "[model]") {
     pcut::Matrix x(2,2); x << 0,1,1,0;
-    REQUIRE_THROWS_AS(pcut::ClusterModel({{{0,0},0,"bad"}},{}),std::invalid_argument);
+    REQUIRE_THROWS_AS(pcut::ClusterModel({{{0,-1},0,"bad"}},{}),std::invalid_argument);
     REQUIRE_THROWS_AS(pcut::ClusterModel({{{0,1},0,"ok"}},{{{0,0},x}}),std::invalid_argument);
     REQUIRE_THROWS_AS(pcut::ClusterModel({{{0,1},0,"ok"}},{{{0},x}},0),std::invalid_argument);
     x(0,1)=3;

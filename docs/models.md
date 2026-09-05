@@ -70,3 +70,9 @@ The model's actual charge alphabet must be covered by the coefficient table.
 Zero-valued couplings may reduce the actual alphabet, so using the union alphabet
 across a sweep avoids rebuilding coefficients. This is still a univariate series
 in lambda; no polynomial interpolation or symbolic dependence is implied.
+
+## Repulsive Hubbard model
+
+For degenerate local charge zero, fermionic signs, operator-valued linking and
+half-/quarter-filling examples, use the [Hubbard guide](hubbard.md). The existing
+vacuum and tensor-sector examples above retain their product-vacuum contract.

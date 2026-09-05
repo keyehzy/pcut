@@ -10,5 +10,13 @@
   {
     "file": "references/sources/cond-mat-0306333.tar",
     "sha256": "41140524bca83806aa314c889af952a31a04c9d7262fb9ecdf3155131568b202"
+  },
+  {
+    "file": "references/sources/cond-mat-0407255.tar",
+    "sha256": "fa0dbecd34162b7866789b82df6675b7c7a9fe2fbf7862d23443a1d625156c44"
+  },
+  {
+    "file": "references/sources/cond-mat-0412033.tar",
+    "sha256": "8765fc993c02cca56c38c95f49953f22de885b6cf3f88dfa50312f83cd2778f8"
   }
 ]
