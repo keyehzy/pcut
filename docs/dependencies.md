@@ -47,7 +47,10 @@ partially constructed upstream nodes on exceptions. The C objects are compiled
 with exception unwinding enabled. All scratch is freed at the end of each call.
 Nauty's randomized Schreier option is disabled. Fault-injection tests fail every
 upstream allocation reached by a symmetric graph, check for leaks, and then
-canonicalize again in the same thread. Address/UB sanitizers cover the C
+canonicalize again in the same thread. Test builds instrument the allocator in
+`pcut_nauty` itself, so injection also reaches a shared pcut library on macOS.
+The test requires at least one injected exception and rejects an incorrect key
+immediately. Address/UB sanitizers cover the C
 implementation as well as the adapter and library.
 
 The installed package includes `libpcut_nauty` and exports its private link

@@ -95,8 +95,8 @@ collects every physical embedding while sharing its canonical graph evaluation.
 There is no finite periodic box or finite-size approximation.
 
 Canonicalization uses sparse **nauty 2.9.3** on a lossless vertex-colored
-incidence graph. Four disjoint color namespaces encode physical vertices,
-edge occurrences, ordered-leg ports and channel occurrences:
+incidence graph. Three disjoint color namespaces encode physical vertices,
+edge occurrences and ordered-leg ports:
 
 - A physical vertex carries the exact `LocalSpace` serialization: species name,
   ordered charges, reference energy, particle numbers and parity.
@@ -105,13 +105,12 @@ edge occurrences, ordered-leg ports and channel occurrences:
 - Each ordered leg has a port adjacent to its edge node and physical vertex;
   its color contains the leg position. On-site and arbitrary-arity edges use
   exactly the same construction.
-- Each channel occurrence has a separate leaf attached to its edge, colored by
-  its slot in that edge's structurally sorted channel list. The parent color
-  contains the full list of exact matrix dimensions, real/imaginary double
-  values and fermionic flags, so a slot identifies the operator losslessly.
-  Even equal channels have distinct slot colors. Input reordering of equal
-  channels changes only their occurrence map; it cannot change vertex
-  equivalence. Duplicate edge templates remain separate nodes.
+
+The edge color retains every channel occurrence, including duplicates, in its
+complete sorted list of exact matrix dimensions, real/imaginary double values
+and fermionic flags. Separate channel nodes would carry no additional structural
+information. Input reordering of equal channels changes only their occurrence
+map; duplicate edge templates remain separate nodes.
 
 Colors are sorted by their full strings to form nauty's ordered initial
 partition. Coordinates and coupling ratios never enter it. Refinement and hashes
@@ -127,11 +126,9 @@ from the former exhaustive algorithm and is not a stable file format.
 
 The incidence group's restriction to physical vertices is onto the white graph's
 vertex automorphism group: every vertex automorphism extends by matching equal
-edge occurrences and the corresponding sorted channel slots. Its kernel has
-order `product_(identical ordered edges) multiplicity!`. Sorted channel-slot
-colors remove internal channel permutations without restricting any physical
-vertex automorphism. Once physical vertices and edge occurrences are fixed,
-ordered ports and channel slots have no freedom. We collect
+edge occurrences with equal complete channel lists. Its kernel has
+order `product_(identical ordered edges) multiplicity!`. Once physical vertices
+and edge occurrences are fixed, ordered ports have no freedom. We collect
 nauty's integer stabilizer indices using `userlevelproc`, multiply them with
 Boost arbitrary-precision integers, and divide by that exact kernel. We verify
 divisibility and only then check whether the vertex count fits `size_t`.

@@ -40,3 +40,7 @@ sample PID 5 1 -file build/engine-comparison-optimized/profile.txt
 Keep build products, raw process logs and large measurement files in `build/`.
 The report in `docs/performance.md` links the retained compact summary and explains
 any cold-time or memory overhead alongside the sweep benefit.
+
+Both historical runners use `scripts/comparison_common.py` for matched builds,
+serial alternating samples, parsing, equivalence checks and report statistics.
+Physical workloads are defined separately in `scripts/comparison_workloads.py`.

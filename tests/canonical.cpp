@@ -132,7 +132,10 @@ TEST_CASE("Vertex group orders remove huge gadget kernels before exact overflow 
     auto parallel=make_graph(2,{{0,1}});
     parallel.edges.resize(64,parallel.edges[0]);
     for (auto& e : parallel.edges) e.channels.resize(24,e.channels[0]);
-    REQUIRE(canonicalize(parallel).vertex_automorphisms==1); // 64! edge kernel; all 1536 channel occurrences survive
+    const auto duplicate=canonicalize(parallel);
+    REQUIRE(duplicate.vertex_automorphisms==1); // 64! edge kernel
+    REQUIRE(duplicate.graph.variables()==1536);
+    check_map(parallel,duplicate);
     for (std::size_t leaves : {4u,12u,20u,21u}) {
         std::vector<std::vector<std::size_t>> legs;
         for (std::size_t v=1;v<=leaves;++v) legs.push_back({0,v});

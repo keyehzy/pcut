@@ -1,9 +1,9 @@
 #include <pcut/white_graph.hpp>
 #include "detail.hpp"
 #include "incidence.hpp"
+#include "graph_structure.hpp"
 #include <boost/multiprecision/cpp_int.hpp>
 #include <algorithm>
-#include <bit>
 #include <cmath>
 #include <functional>
 #include <limits>
@@ -13,38 +13,14 @@
 
 namespace pcut {
 namespace {
-void number(std::string& key, std::uint64_t n) {
-    char bytes[8];
-    for (unsigned i=0;i<8;++i) bytes[i]=static_cast<char>((n>>(8*i))&255);
-    key.append(bytes,8);
-}
-void real(std::string& key,double x) { number(key,std::bit_cast<std::uint64_t>(x==0 ? 0.0 : x)); }
-void string(std::string& key,const std::string& s) { number(key,s.size()); key+=s; }
-template<class T> void sequence(std::string& key,const std::vector<T>& s) {
-    number(key,s.size()); for (auto x : s) number(key,static_cast<std::uint64_t>(x));
-}
-std::string space_key(const LocalSpace& space) {
-    std::string key;
-    string(key,space.name); sequence(key,space.charges); sequence(key,space.particles);
-    sequence(key,space.parity); real(key,space.vacuum_energy); return key;
-}
-std::string channel_key(const OperatorChannel& op) {
-    std::string key;
-    number(key,op.fermionic); number(key,static_cast<std::uint64_t>(op.matrix.rows()));
-    number(key,static_cast<std::uint64_t>(op.matrix.cols()));
-    for (Eigen::Index i=0;i<op.matrix.size();++i) { real(key,op.matrix.data()[i].real()); real(key,op.matrix.data()[i].imag()); }
-    return key;
-}
-std::vector<std::size_t> channel_order(const GraphEdge& edge) {
-    std::vector<std::size_t> order(edge.channels.size()); std::iota(order.begin(),order.end(),0);
-    std::stable_sort(order.begin(),order.end(),[&](auto a,auto b) { return channel_key(edge.channels[a])<channel_key(edge.channels[b]); });
-    return order;
-}
-std::string edge_structure(const GraphEdge& edge) {
-    std::string key; number(key,edge.legs.size()); number(key,edge.channels.size());
-    for (auto c : channel_order(edge)) string(key,channel_key(edge.channels[c]));
-    return key;
-}
+using detail::number;
+using detail::real;
+using detail::string;
+using detail::sequence;
+using detail::space_key;
+using detail::channel_key;
+using detail::channel_order;
+using detail::edge_structure;
 std::string evaluation_key(const WhiteGraph& graph) {
     std::string key; number(key,graph.spaces.size());
     for (const auto& space : graph.spaces) string(key,space_key(space));
@@ -130,32 +106,14 @@ static CanonicalGraph canonicalize_impl(const WhiteGraph& g, bool validate, Sign
     std::vector<std::string> structures;
     std::vector<std::vector<std::size_t>> orders;
     for (const auto& e : g.edges) { const auto id=pool.edge(e); structures.push_back(pool.edges[id].key); orders.push_back(pool.edges[id].order); }
-    detail::Incidence incidence;
-    for (const auto& label : labels) incidence.node("V"+label);
-    // Restriction to physical vertices is onto. Its kernel permutes identical
-    // ordered edge occurrences. Channel leaves have canonical sorted-slot
-    // colors: all occurrences survive, with no redundant channel permutations.
+    const auto incidence=detail::encode_incidence(g,labels,structures);
+    // Restriction to physical vertices is onto. Its kernel only permutes
+    // identical ordered edge occurrences. Channels live in the edge colors.
     // Count the kernel exactly; only the quotient must fit size_t.
     boost::multiprecision::cpp_int kernel=1;
     std::map<std::string,std::size_t> edge_multiplicities;
     for (std::size_t e=0;e<g.edges.size();++e) {
-        const auto& edge=g.edges[e];
-        const int occurrence=incidence.node("E"+structures[e]);
-        for (std::size_t leg=0;leg<edge.legs.size();++leg) {
-            std::string color="L"; number(color,leg);
-            const int port=incidence.node(std::move(color));
-            incidence.join(occurrence,port);
-            incidence.join(port,static_cast<int>(edge.legs[leg]));
-        }
-        // The parent color contains the full sorted operator list. Its slot
-        // identifies the exact operator without repeating matrix bytes. Equal
-        // operators get distinct slots; reordering them only changes the map.
-        // Every physical vertex automorphism still extends to this encoding.
-        for (std::size_t c=0;c<edge.channels.size();++c) {
-            std::string color="C"; number(color,c);
-            incidence.join(occurrence,incidence.node(std::move(color)));
-        }
-        auto key=structures[e]; sequence(key,edge.legs);
+        auto key=structures[e]; sequence(key,g.edges[e].legs);
         kernel*=++edge_multiplicities[key];
     }
     const auto labeling=detail::label_incidence(incidence);

@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <bit>
-#include <cmath>
 #include <functional>
 #include <limits>
 #include <numeric>
@@ -46,43 +45,6 @@ std::string edge_structure(const GraphEdge& edge) {
     for (auto c : channel_order(edge)) string(key,channel_key(edge.channels[c]));
     return key;
 }
-std::string evaluation_key(const WhiteGraph& graph) {
-    std::string key; number(key,graph.spaces.size());
-    for (const auto& space : graph.spaces) string(key,space_key(space));
-    number(key,graph.edges.size());
-    for (const auto& edge : graph.edges) {
-        sequence(key,edge.legs); number(key,edge.channels.size());
-        for (const auto& channel : edge.channels) string(key,channel_key(channel));
-    }
-    return key;
-}
-// Exact interning is local to a construction. IDs accelerate refinement and
-// memoization; persistent graph/cache identities still contain full structures.
-struct Signatures {
-    struct EdgeInfo { GraphEdge edge; std::string key; std::vector<std::size_t> order; };
-    std::vector<std::pair<LocalSpace,std::string>> spaces;
-    std::vector<EdgeInfo> edges;
-    std::size_t space(const LocalSpace& s) {
-        for (std::size_t i=0;i<spaces.size();++i) {
-            const auto& a=spaces[i].first;
-            if (a.name==s.name && a.charges==s.charges && a.particles==s.particles && a.parity==s.parity && a.vacuum_energy==s.vacuum_energy) return i;
-        }
-        spaces.emplace_back(s,space_key(s)); return spaces.size()-1;
-    }
-    std::size_t edge(const GraphEdge& e) {
-        for (std::size_t i=0;i<edges.size();++i) {
-            const auto& a=edges[i].edge;
-            if (a.legs.size()!=e.legs.size() || a.channels.size()!=e.channels.size()) continue;
-            bool equal=true;
-            for (std::size_t c=0;c<e.channels.size() && equal;++c) {
-                const auto& x=a.channels[c]; const auto& y=e.channels[c];
-                equal=x.fermionic==y.fermionic && x.matrix.rows()==y.matrix.rows() && x.matrix.cols()==y.matrix.cols() && x.matrix==y.matrix;
-            }
-            if (equal) return i;
-        }
-        edges.push_back({e,edge_structure(e),channel_order(e)}); return edges.size()-1;
-    }
-};
 bool graph_connected(const WhiteGraph& g) {
     if (g.edges.empty()) return false;
     std::set<std::size_t> seen(g.edges.front().legs.begin(),g.edges.front().legs.end());
@@ -101,10 +63,9 @@ std::vector<std::size_t> offsets(const WhiteGraph& g) {
 }
 
 }
-static CanonicalGraph canonicalize_impl(const WhiteGraph& g, bool validate, Signatures& pool) {
+inline CanonicalGraph canonicalize(const WhiteGraph& g) {
     if (g.edges.empty() || g.edges.size()>64 || g.spaces.empty() || g.spaces.size()>1000)
         throw std::invalid_argument("invalid abstract graph size");
-    if (validate) {
     // Validate local operators on their support without constructing a full graph tensor space.
     for (const auto& space : g.spaces) space.validate();
     for (const auto& edge : g.edges) {
@@ -116,14 +77,15 @@ static CanonicalGraph canonicalize_impl(const WhiteGraph& g, bool validate, Sign
         }
         for (const auto& c : edge.channels) { const ClusterModel check(local,{{legs,c.matrix,c.fermionic}}); (void)check; }
     }
-    }
     if (!graph_connected(g)) throw std::invalid_argument("abstract graph must be connected without isolated vertices");
-    std::vector<std::string> labels;
-    std::vector<std::size_t> space_ids;
-    for (const auto& s : g.spaces) { const auto id=pool.space(s); space_ids.push_back(id); labels.push_back(pool.spaces[id].second); }
+    std::vector<std::string> space_keys;
+    for (const auto& space : g.spaces) space_keys.push_back(space_key(space));
+    auto labels=space_keys;
     std::vector<std::string> structures;
     std::vector<std::vector<std::size_t>> orders;
-    for (const auto& e : g.edges) { const auto id=pool.edge(e); structures.push_back(pool.edges[id].key); orders.push_back(pool.edges[id].order); }
+    for (const auto& edge : g.edges) {
+        structures.push_back(edge_structure(edge)); orders.push_back(channel_order(edge));
+    }
     auto unique_structures=structures;
     std::sort(unique_structures.begin(),unique_structures.end());
     unique_structures.erase(std::unique(unique_structures.begin(),unique_structures.end()),unique_structures.end());
@@ -172,7 +134,7 @@ static CanonicalGraph canonicalize_impl(const WhiteGraph& g, bool validate, Sign
         number(candidate.key,g.spaces.size());
         for (std::size_t v=0;v<permutation.size();++v) {
             inverse[permutation[v]]=v; candidate.graph.spaces.push_back(g.spaces[permutation[v]]);
-            string(candidate.key,pool.spaces[space_ids[permutation[v]]].second);
+            string(candidate.key,space_keys[permutation[v]]);
         }
         std::vector<std::pair<std::string,std::size_t>> edges;
         for (std::size_t e=0;e<g.edges.size();++e) {
@@ -196,7 +158,6 @@ static CanonicalGraph canonicalize_impl(const WhiteGraph& g, bool validate, Sign
     };
     search(0); return best;
 }
-CanonicalGraph canonicalize(const WhiteGraph& graph) { Signatures pool; return canonicalize_impl(graph,true,pool); }
 
 } // namespace test_oracle
 } // namespace pcut

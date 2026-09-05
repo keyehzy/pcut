@@ -43,10 +43,9 @@ if(BUILD_TESTING)
   target_compile_definitions(pcut_tests PRIVATE PCUT_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/tests/data")
   include(Catch)
   catch_discover_tests(pcut_tests)
-  # Override the archive's allocator in this executable only; inject a failure
-  # at every upstream allocation site and verify cleanup and subsequent reuse.
-  add_executable(pcut_nauty_failure tests/nauty_failure.cpp src/nauty_alloc.cpp)
-  target_compile_definitions(pcut_nauty_failure PRIVATE PCUT_NAUTY_ALLOC_TESTING)
+  # Instrument the allocator used by nauty itself, including shared pcut builds.
+  target_compile_definitions(pcut_nauty PRIVATE PCUT_NAUTY_ALLOC_TESTING)
+  add_executable(pcut_nauty_failure tests/nauty_failure.cpp)
   target_link_libraries(pcut_nauty_failure PRIVATE pcut::pcut)
   add_test(NAME nauty_allocation_failure COMMAND pcut_nauty_failure)
 endif()

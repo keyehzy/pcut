@@ -1,15 +1,21 @@
 # White-graph canonicalizer measurements
 
 The production exhaustive vertex search has been replaced by sparse **nauty
-2.9.3**. The final encoding retains every edge/channel occurrence, full exact
+2.9.3**. The production encoding retains every edge/channel occurrence, full exact
 physical signatures, ordered legs and explicit maps. Canonical order may change;
 full structural and cache identities remain exact. See [design.md](design.md)
 and [dependency provenance](dependencies.md).
 
 These measurements compare the starting revision
-`a4ea23c88325141eed0e2f2cff387546214b976f` with this implementation. The earlier
+`a4ea23c88325141eed0e2f2cff387546214b976f` with the measured implementation. The earlier
 engine redesign comparison against `a22f963` is preserved separately in
 [performance-engine.md](performance-engine.md).
+
+The retained timings below predate removal of redundant channel leaves. The
+current duplicate fixture has 98 incidence nodes instead of 354 and still
+retains all 256 channel occurrences. Production and backend tooling now share
+encoding, partition construction, sparse storage and nauty cleanup. The tables
+below retain the original seven-repeat measurements.
 
 ## Method and scope
 
@@ -98,9 +104,10 @@ sizes. No baseline timing is claimed for the backend-only star-20 or cycle-64.
 Dimer API time regresses by 3.2%, and its standalone topology median by 8.6%
 (about 27 µs). The old refinement already makes these small oriented paths
 trivial; incidence construction and full gadget labeling add fixed work.
-Duplicate-heavy input remains 2.8× slower than the baseline: two physical
-vertices are trivial for the old search, while nauty still processes 354 incidence
-vertices and a `32!` edge kernel. This is a remaining measured limitation.
+Duplicate-heavy input was 2.8× slower than the baseline: two physical
+vertices are trivial for the old search, while that encoding processed 354 incidence
+vertices and a `32!` edge kernel. The current encoding has 98 nodes; the exact
+edge kernel is unchanged.
 
 ## Regression investigation
 
@@ -111,7 +118,7 @@ It duplicated matrix serialization and introduced a channel-permutation kernel
 seven-repeat summary and source fingerprint are retained in
 [performance-canonical-initial.json](performance-canonical-initial.json).
 
-The final encoding uses distinct sorted-channel slot colors. The parent edge
+The measured encoding used distinct sorted-channel slot colors. The parent edge
 still contains the complete sorted operator list, so each slot identifies its
 operator exactly. All channel occurrences and maps survive, but internal
 channel permutations disappear. Every physical vertex automorphism still

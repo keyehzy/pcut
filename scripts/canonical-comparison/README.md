@@ -62,3 +62,9 @@ Raw outputs and complete per-point results go to `build/canonical-comparison/`.
 `docs/performance-canonical.json` retains build metadata, source fingerprint,
 all scalar samples and summary variability. Dependency downloads and binaries
 remain in build directories or `/tmp` and are not versioned.
+
+Both historical runners use `scripts/comparison_common.py` for matched builds,
+serial alternating samples, parsing, equivalence checks and report statistics.
+Physical workloads are defined separately in `scripts/comparison_workloads.py`.
+The backend harness uses production’s private incidence encoding and sparse
+preparation helpers; the exhaustive test oracle stays independent.
