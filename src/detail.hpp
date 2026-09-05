@@ -6,32 +6,21 @@
 #include <stdexcept>
 
 namespace pcut::detail {
-inline std::size_t matrix_size(std::size_t basis, std::size_t orders, std::size_t budget) {
+inline void check_matrix_size(std::size_t basis) {
     const auto index_max=static_cast<std::size_t>(std::numeric_limits<Eigen::Index>::max());
-    budget=std::min(budget,std::numeric_limits<std::size_t>::max()/sizeof(Complex));
-    if (!orders || basis>index_max || (basis &&
-        (basis>index_max/basis || basis>budget/basis || orders>budget/basis/basis)))
-        throw std::length_error("matrix-element budget or Eigen indexing exceeded");
-    return basis*basis*orders;
+    const auto entry_max=std::numeric_limits<std::size_t>::max()/sizeof(Complex);
+    if (basis>index_max || (basis && (basis>index_max/basis || basis>entry_max/basis)))
+        throw std::length_error("matrix size exceeds Eigen indexing or byte-size representation");
 }
-inline std::vector<Matrix> matrix_series(std::size_t basis, std::size_t orders, std::size_t budget) {
-    matrix_size(basis,orders,budget);
+inline std::vector<Matrix> matrix_series(std::size_t basis, std::size_t orders) {
+    if (!orders) throw std::invalid_argument("matrix series must contain a constant term");
+    check_matrix_size(basis);
     std::vector<Matrix> result;
     result.reserve(orders);
     for (std::size_t n=0;n<orders;++n)
         result.emplace_back(Matrix::Zero(static_cast<Eigen::Index>(basis),static_cast<Eigen::Index>(basis)));
     return result;
 }
-struct StorageBudget {
-    std::size_t remaining;
-    void take(std::size_t count) {
-        if (count>remaining) throw std::length_error("linked coefficient storage budget exceeded");
-        remaining-=count;
-    }
-    void matrices(std::size_t basis, std::size_t orders) {
-        take(matrix_size(basis,orders,remaining));
-    }
-};
 inline Coordinate translate(const Coordinate& a, const Coordinate& b, int sign=1) {
     if (a.size()!=b.size()) throw std::invalid_argument("coordinate dimension mismatch");
     Coordinate out(a.size());

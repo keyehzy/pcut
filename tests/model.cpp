@@ -31,7 +31,6 @@ TEST_CASE("Tensor roles, multi-site interactions and non-unit local charges", "[
     REQUIRE(model.apply(5,{{0,1}}).at(11) == pcut::Complex(1,2));
     const pcut::EffectiveOperator effective(pcut::Coefficients({-5,5},2));
     REQUIRE(effective.vacuum(model)[2].real() == Catch::Approx(-1));
-    REQUIRE_THROWS_AS(model.apply(5,{{0,1}},0),std::length_error);
     REQUIRE_THROWS_AS(model.encode({2,0,0}),std::out_of_range);
 }
 TEST_CASE("Finite dimer spectrum agrees with independent exact diagonalization", "[model][ed]") {
@@ -48,7 +47,6 @@ TEST_CASE("Finite dimer spectrum agrees with independent exact diagonalization",
         if (previous > 0) REQUIRE(previous/error > 24);
         previous = error;
     }
-    REQUIRE_THROWS_AS(model.dense_hamiltonian(0.1,16),std::length_error);
 }
 TEST_CASE("Model contracts reject malformed input", "[model]") {
     pcut::Matrix x(2,2); x << 0,1,1,0;
@@ -78,11 +76,29 @@ TEST_CASE("Physical energy unit rescaling preserves the effective series", "[mod
         }
     }
 }
-TEST_CASE("Dense block budgets count every perturbative order", "[model][budget]") {
+TEST_CASE("Dense blocks retain every perturbative order", "[model]") {
     const pcut::ClusterModel model({{{0,1},0,"spin"}},{});
     const pcut::EffectiveOperator effective(pcut::Coefficients({0},64));
-    pcut::SolverOptions options; options.max_matrix_elements=259;
-    REQUIRE_THROWS_AS(effective.block(model,{0,1},options),std::length_error);
-    options.max_matrix_elements=260;
-    REQUIRE(effective.block(model,{0,1},options).size()==65);
+    const auto block=effective.block(model,{0,1});
+    REQUIRE(block.size()==65);
+    REQUIRE(block[0](0,0)==pcut::Complex{});
+    REQUIRE(block[0](1,1)==pcut::Complex(1));
+    for (std::size_t n=1;n<block.size();++n) {
+        REQUIRE(block[n].rows()==2);
+        REQUIRE(block[n].cols()==2);
+        REQUIRE(block[n].isZero());
+    }
+    const auto empty=effective.block(model,{});
+    REQUIRE(empty.size()==65);
+    for (const auto& matrix : empty) REQUIRE(matrix.size()==0);
+}
+
+TEST_CASE("Dense Hamiltonians reject unrepresentable allocations before allocation", "[model][overflow]") {
+    // Each tensor dimension fits State. The square exceeds byte-size representation,
+    // Eigen's entry count, or Eigen's dimension respectively on a 64-bit platform.
+    for (unsigned sites : {30U,32U,63U}) {
+        CAPTURE(sites);
+        const pcut::ClusterModel model(std::vector<pcut::LocalSpace>(sites,{{0,1},0,"spin"}),{});
+        REQUIRE_THROWS_AS(model.dense_hamiltonian(0),std::length_error);
+    }
 }

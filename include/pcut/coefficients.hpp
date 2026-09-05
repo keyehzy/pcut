@@ -11,8 +11,7 @@ using Word = std::vector<int>;
 // C(m_1,...,m_k) multiplies T_{m_1}...T_{m_k}; rightmost acts first.
 class Coefficients {
 public:
-    explicit Coefficients(std::vector<int> changes, unsigned order,
-                          std::size_t max_words = 2'000'000);
+    explicit Coefficients(std::vector<int> changes, unsigned order);
     [[nodiscard]] unsigned order() const noexcept { return order_; }
     [[nodiscard]] const std::vector<int>& changes() const noexcept { return changes_; }
     [[nodiscard]] const std::map<Word, Rational>& terms() const noexcept { return terms_; }

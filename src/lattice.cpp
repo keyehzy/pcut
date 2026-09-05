@@ -85,7 +85,7 @@ ClusterModel cluster_model(const PeriodicLattice& lattice, const Cluster& cluste
     }
     return {std::move(spaces), std::move(terms), lattice.gap};
 }
-ClusterTopology::ClusterTopology(const PeriodicLattice& lattice, unsigned max_edges, EnumerationOptions options)
+ClusterTopology::ClusterTopology(const PeriodicLattice& lattice, unsigned max_edges)
     : dimension_(lattice.dimension), cell_size_(lattice.cell.size()), max_edges_(max_edges) {
     if (!dimension_ || dimension_>16 || !cell_size_) throw std::invalid_argument("invalid lattice geometry");
     for (const auto& interaction : lattice.interactions) {
@@ -101,9 +101,7 @@ ClusterTopology::ClusterTopology(const PeriodicLattice& lattice, unsigned max_ed
     if (max_edges > 0) for (std::size_t t = 0; t < lattice.interactions.size(); ++t)
         level.insert({{t, Coordinate(lattice.dimension,0)}});
     std::map<Cluster, std::size_t> indices;
-    std::size_t subcluster_count = 0;
     for (unsigned size = 1; size <= max_edges && !level.empty(); ++size) {
-        if (level.size() > options.max_clusters - entries_.size()) throw std::length_error("cluster budget exceeded");
         for (const auto& c : level) {
             ClusterEntry entry{c, vertices(lattice,c), {}};
             // Recursive deletion generates all connected subsets without a 2^n bit-mask limit.
@@ -116,7 +114,6 @@ ClusterTopology::ClusterTopology(const PeriodicLattice& lattice, unsigned max_ed
                     Cluster child = parent;
                     child.erase(child.begin()+static_cast<std::ptrdiff_t>(erase));
                     if (!connected(lattice,child) || !visited.insert(child).second) continue;
-                    if (++subcluster_count > options.max_subclusters) throw std::length_error("subcluster budget exceeded");
                     pending.push_back(child);
                     const auto normalized = normalize(child);
                     const auto index = indices.at(normalized.cluster);
@@ -143,7 +140,6 @@ ClusterTopology::ClusterTopology(const PeriodicLattice& lattice, unsigned max_ed
                     auto enlarged = c;
                     enlarged.push_back(e);
                     next.insert(normalize(std::move(enlarged)).cluster);
-                    if (next.size() > options.max_clusters - entries_.size()) throw std::length_error("cluster budget exceeded");
                 }
         }
         level = std::move(next);
@@ -154,8 +150,8 @@ bool ClusterTopology::matches(const PeriodicLattice& lattice) const noexcept {
     for (std::size_t t=0;t<legs_.size();++t) if (legs_[t]!=lattice.interactions[t].legs) return false;
     return true;
 }
-ClusterCatalog::ClusterCatalog(PeriodicLattice lattice, unsigned max_edges, EnumerationOptions options)
-    : ClusterCatalog(lattice,std::make_shared<ClusterTopology>(lattice,max_edges,options)) {}
+ClusterCatalog::ClusterCatalog(PeriodicLattice lattice, unsigned max_edges)
+    : ClusterCatalog(lattice,std::make_shared<ClusterTopology>(lattice,max_edges)) {}
 ClusterCatalog::ClusterCatalog(PeriodicLattice lattice, std::shared_ptr<const ClusterTopology> topology)
     : lattice_(std::move(lattice)), topology_(std::move(topology)) {
     if (!topology_ || !topology_->matches(lattice_)) throw std::invalid_argument("lattice does not match cluster topology");

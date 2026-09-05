@@ -199,21 +199,17 @@ subcluster embeddings. Independent finite Hubbard diagonalizations compare
 decrease at the expected order as `t/U` is halved. Infinite-square spin couplings
 are extracted by orthogonal Pauli traces of linked weights, not numerical fits.
 
-## Resource limits and scope
+## Computational cost and scope
 
-`OperatorOptions` separately bounds external basis size (4096), basis-enumeration
-visits (one million), total retained complex matrix entries across weights and
-orders (32 million, about 512 MB of payload), and candidate row/column/order combinations per embedding (100 million). `SolverOptions::max_states` bounds sparse intermediate
-and output states; `SolverOptions::max_matrix_elements` additionally bounds each
-dense series (also 32 million entries). Both matrix limits must allow a requested
-block. Coefficient and catalog budgets remain separately configurable.
-Budget exhaustion throws instead of discarding states, sectors, words or clusters.
-Transient matrices, indices and sparse scratch storage add to the payload budget;
-it is not a bound on process resident memory. State IDs must fit 64 bits.
+The operator APIs impose no configurable basis, storage, traversal or embedding
+work budgets. They retain complete requested bases and linked weights; allocation
+failures propagate instead of discarding states, sectors, words or clusters.
+State IDs must fit 64 bits, and dense matrix sizes must fit Eigen indexing and
+byte-size representation. See [design.md](design.md) for implementation limits.
 
-Dense external operator matrices scale as `9^L` for Hubbard; fourth-order square
-weights fit the defaults, but high orders become costly. The core APIs accept
-higher orders within explicit budgets; Hubbard physics is validated through
+Dense external operator matrices scale as `9^L` for Hubbard, so high orders become
+costly. Callers choose calculations appropriate to their memory and available run
+time. The core APIs accept higher orders; Hubbard physics is validated through
 fourth order and the example limits its order to 1–4. Finite assembly supports
 explicit open lattice edge sets, not periodic boundary identifications or a
 large-system sparse many-body eigensolver. Custom hopping geometries can be

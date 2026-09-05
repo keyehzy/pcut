@@ -89,12 +89,10 @@ Zero-valued couplings may reduce the actual alphabet, so using the union alphabe
 across a sweep avoids rebuilding coefficients. This is still a univariate series
 in lambda; no polynomial interpolation or symbolic dependence is implied.
 
-Dense blocks use `SolverOptions::max_matrix_elements`, counting all orders;
-linked options also count retained weights and output series cumulatively.
-Both default to 32 million complex entries (about 512 MB of payload). When
-raising limits for a large calculation, raise both the linked limit and its
-nested solver limit as needed. Bloch series accept an optional matrix-entry
-budget. See [design.md](design.md) for accounting and scratch-memory limits.
+Calculations have no configurable storage or work budgets. Choose orders and
+external sectors that fit your available resources; allocation failures propagate.
+Tensor encodings and dense matrix sizes are still checked for representability.
+See [design.md](design.md) for implementation limits.
 Only exact zeros are removed; there is no amplitude-pruning tolerance.
 
 ## Repulsive Hubbard model

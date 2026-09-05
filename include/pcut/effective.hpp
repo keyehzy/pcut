@@ -3,23 +3,15 @@
 #include <pcut/model.hpp>
 
 namespace pcut {
-struct SolverOptions {
-    std::size_t max_states = 1'000'000;
-    // Complex entries across all orders in one dense block.
-    std::size_t max_matrix_elements = 32'000'000;
-};
-
 // Immutable shared-prefix program for sparse applications of the universal series.
 // Safe to share between threads; all evaluation scratch storage is local.
 class EffectiveOperator {
 public:
     explicit EffectiveOperator(const Coefficients& coefficients);
     [[nodiscard]] unsigned order() const noexcept { return order_; }
-    [[nodiscard]] std::vector<SparseState> apply(const ClusterModel& model, State input,
-                                                SolverOptions options = {}) const;
-    [[nodiscard]] std::vector<Matrix> block(const ClusterModel& model, const std::vector<State>& basis,
-                                            SolverOptions options = {}) const;
-    [[nodiscard]] Series vacuum(const ClusterModel& model, SolverOptions options = {}) const;
+    [[nodiscard]] std::vector<SparseState> apply(const ClusterModel& model, State input) const;
+    [[nodiscard]] std::vector<Matrix> block(const ClusterModel& model, const std::vector<State>& basis) const;
+    [[nodiscard]] Series vacuum(const ClusterModel& model) const;
 private:
     struct Node {
         std::map<int, std::size_t> children;

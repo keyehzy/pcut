@@ -50,7 +50,7 @@ Function integrate(const Function& source, int decay) {
     return f;
 }
 }
-Coefficients::Coefficients(std::vector<int> changes, unsigned order, std::size_t max_words)
+Coefficients::Coefficients(std::vector<int> changes, unsigned order)
     : order_(order), changes_(std::move(changes)) {
     if (order > 64) throw std::invalid_argument("order exceeds supported recursion depth (64)");
     std::sort(changes_.begin(), changes_.end());
@@ -60,15 +60,6 @@ Coefficients::Coefficients(std::vector<int> changes, unsigned order, std::size_t
         if (m < -1'000'000 || m > 1'000'000)
             throw std::invalid_argument("charge change is too large");
         bound = std::max(bound, std::abs(m));
-    }
-    // Bound enumeration before allocating or entering exponential recursion.
-    std::size_t count = 0, level = 1;
-    for (unsigned n = 1; n <= order; ++n) {
-        if (!changes_.empty() && level > max_words / changes_.size())
-            throw std::length_error("universal word budget exceeded; reduce order or change alphabet");
-        level *= changes_.size();
-        if (level > max_words - count) throw std::length_error("universal word budget exceeded");
-        count += level;
     }
     std::map<Word, Function> functions;
     for (unsigned n = 1; n <= order; ++n) {

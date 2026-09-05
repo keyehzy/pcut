@@ -11,7 +11,7 @@ TEST_CASE("Dimer chain vacuum matches literature through sixth order", "[chain][
     const pcut::EffectiveOperator effective(pcut::Coefficients({-2,-1,0,1,2},6));
     for (double a : {0.0,0.17,0.5}) {
         INFO("alpha=" << a);
-        const auto result=pcut::linked_expand(pcut::ClusterCatalog(pcut::models::dimerized_chain(a),6),effective,{false,{}});
+        const auto result=pcut::linked_expand(pcut::ClusterCatalog(pcut::models::dimerized_chain(a),6),effective,{false});
         const double b=std::pow(1-2*a,2);
         // cond-mat/9906243 Eq. E_grund: per SPIN, lambda_bar=lambda/4;
         // restore the physical -3/8 reference and multiply by two per dimer.

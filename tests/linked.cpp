@@ -33,7 +33,6 @@ TEST_CASE("Square lattice counts colored orientations and loops", "[lattice]") {
     REQUIRE(counts[3]==22);
     REQUIRE(counts[4]==88);
     REQUIRE(loops==1);
-    REQUIRE_THROWS_AS(pcut::ClusterCatalog(lattice,4,{3,100}),std::length_error);
 }
 TEST_CASE("Scalar subtraction cancels an extensive bond contribution", "[linked]") {
     const pcut::ClusterCatalog catalog(pcut::models::ising_chain(),4);
@@ -81,37 +80,25 @@ TEST_CASE("On-site terms, multiple basis sites and complex directed hopping", "[
     REQUIRE(h[3].norm()<1e-12);
 }
 
-TEST_CASE("Linked scalar and particle drivers skip catalog orders they do not need", "[linked][budget]") {
+TEST_CASE("Linked scalar and particle drivers skip catalog orders they do not need", "[linked]") {
     const auto lattice=pcut::models::ising_chain();
     const pcut::ClusterCatalog small(lattice,1), large(lattice,3);
     const pcut::EffectiveOperator effective(pcut::Coefficients(pcut::charge_changes(lattice),1));
-    pcut::LinkedOptions options; options.max_matrix_elements=18; // energy, vacuum weight, 2x2 block and 3 hoppings
-    const auto expected=pcut::linked_expand(small,effective,options);
-    const auto actual=pcut::linked_expand(large,effective,options);
+    const auto expected=pcut::linked_expand(small,effective);
+    const auto actual=pcut::linked_expand(large,effective);
     REQUIRE(actual.energy_per_cell==expected.energy_per_cell);
     REQUIRE(actual.hopping==expected.hopping);
     REQUIRE(actual.vacuum_weights.size()==1);
-    options.max_matrix_elements=17;
-    REQUIRE_THROWS_AS(pcut::linked_expand(small,effective,options),std::length_error);
     unsigned calls=0;
     const auto scalar=pcut::linked_scalar(large,1,[&](const auto& model) {
         ++calls; REQUIRE(model.sites()==2); return pcut::Series{0,2};
-    },0,4);
+    });
     REQUIRE(calls==1);
     REQUIRE(scalar.weights.size()==1);
     REQUIRE(scalar.per_cell[1]==pcut::Complex(2));
-    REQUIRE_THROWS_AS(pcut::linked_scalar(large,1,[](const auto&) { return pcut::Series{0,2}; },0,3),std::length_error);
     const auto zero=pcut::linked_scalar(large,0,[&](const auto&) { ++calls; return pcut::Series{0}; });
     REQUIRE(calls==1);
     REQUIRE(zero.weights.empty());
-}
-TEST_CASE("Linked storage budgets accumulate retained cluster matrices", "[linked][budget]") {
-    const auto lattice=pcut::models::ising_chain();
-    const pcut::EffectiveOperator effective(pcut::Coefficients(pcut::charge_changes(lattice),2));
-    pcut::LinkedOptions options;
-    options.solver.max_matrix_elements=27; // each block fits separately
-    options.max_matrix_elements=40; // retained matrices alone need 12+27
-    REQUIRE_THROWS_AS(pcut::linked_expand(pcut::ClusterCatalog(lattice,2),effective,options),std::length_error);
 }
 TEST_CASE("Coupling sweeps bind shared topology and preserve ordered compiled legs", "[lattice][sweep]") {
     auto lattice=pcut::models::dimerized_chain(0.17);

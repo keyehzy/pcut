@@ -8,13 +8,12 @@
 
 namespace pcut {
 namespace {
-std::vector<State> sector_basis(const ClusterModel& model, unsigned max_charge, std::size_t max_basis) {
+std::vector<State> sector_basis(const ClusterModel& model, unsigned max_charge) {
     if (max_charge > 1'000'000) throw std::invalid_argument("requested sector charge is too large");
     std::vector<State> result;
     std::vector<unsigned> state(model.sites());
     std::function<void(std::size_t,unsigned)> enumerate = [&](std::size_t site, unsigned charge) {
         if (site == model.sites()) {
-            if (result.size() >= max_basis) throw std::length_error("sector basis budget exceeded");
             result.push_back(model.encode(state)); return;
         }
         const auto& space = model.spaces()[site];
@@ -48,13 +47,12 @@ Kernel normalize_kernel(Kernel kernel) {
 }
 }
 IrreducibleSectors irreducible_sectors(const ClusterModel& model, const EffectiveOperator& effective,
-                                      unsigned max_charge, SectorOptions options) {
+                                      unsigned max_charge) {
     model.require_product_vacuum();
     if (model.fermionic()) throw std::invalid_argument("tensor sector kernels do not support graded fermionic terms");
     IrreducibleSectors result;
-    result.basis=sector_basis(model,max_charge,options.max_basis);
-    options.solver.max_matrix_elements=std::min(options.solver.max_matrix_elements,options.max_matrix_elements);
-    result.kernels=effective.block(model,result.basis,options.solver);
+    result.basis=sector_basis(model,max_charge);
+    result.kernels=effective.block(model,result.basis);
     std::map<State,Eigen::Index> indices;
     std::vector<std::vector<unsigned>> decoded;
     for (std::size_t i=0;i<result.basis.size();++i) {
@@ -62,7 +60,6 @@ IrreducibleSectors irreducible_sectors(const ClusterModel& model, const Effectiv
         decoded.push_back(model.decode(result.basis[i]));
     }
     std::vector<unsigned> local(model.sites(),0);
-    std::size_t contractions=0;
     // Lower-charge input columns have already been converted to kernels.
     for (std::size_t j=0;j<result.basis.size();++j) for (std::size_t i=0;i<result.basis.size();++i) {
         if (model.charge(result.basis[i])!=model.charge(result.basis[j])) continue;
@@ -72,7 +69,6 @@ IrreducibleSectors irreducible_sectors(const ClusterModel& model, const Effectiv
         }
         std::function<void(std::size_t,State)> subtract = [&](std::size_t start,State removed) {
             for (std::size_t s=start;s<common.size();++s) {
-                if (++contractions>options.max_contractions) throw std::length_error("spectator contraction budget exceeded");
                 const State next=removed+common[s];
                 const auto row=indices.at(result.basis[i]-next);
                 const auto col=indices.at(result.basis[j]-next);
@@ -86,35 +82,29 @@ IrreducibleSectors irreducible_sectors(const ClusterModel& model, const Effectiv
     return result;
 }
 LinkedSectors linked_expand_sectors(const ClusterCatalog& catalog, const EffectiveOperator& effective,
-                                    unsigned max_charge, SectorOptions options) {
+                                    unsigned max_charge) {
     if (catalog.max_edges()<effective.order()) throw std::invalid_argument("catalog does not cover perturbation order");
     const auto& lattice=catalog.lattice();
     const auto order=effective.order();
     for (const auto& space : lattice.cell) space.require_product_vacuum();
     for (const auto& term : lattice.interactions) if (term.fermionic)
         throw std::invalid_argument("tensor sector kernels do not support graded fermionic terms");
-    detail::StorageBudget storage{options.max_matrix_elements};
-    storage.take(static_cast<std::size_t>(order)+1);
     LinkedSectors result{Series(order+1),{}};
     for (std::size_t b=0;b<lattice.cell.size();++b) {
         const auto& space=lattice.cell[b];
         result.energy_per_cell[0]+=space.vacuum_energy;
         for (unsigned l=1;l<space.charges.size();++l) if (static_cast<unsigned>(space.charges[l])<=max_charge) {
             const Excitation e{{Coordinate(lattice.dimension,0),b},l};
-            storage.take(static_cast<std::size_t>(order)+1);
             Series value(order+1); value[0]=lattice.gap*space.charges[l];
             result.kernels.emplace(Kernel{{e},{e}},std::move(value));
         }
     }
-    if (result.kernels.size()>options.max_kernels) throw std::length_error("linked kernel budget exceeded");
     struct Weight { IrreducibleSectors sectors; std::vector<std::vector<unsigned>> local; };
     std::vector<Weight> weights;
     for (const auto& entry : catalog.entries()) {
         if (entry.edges.size()>order) break;
         const auto model=catalog.model(entry.edges);
-        auto remaining=options; remaining.max_matrix_elements=storage.remaining;
-        Weight weight{irreducible_sectors(model,effective,max_charge,remaining),{}};
-        storage.matrices(weight.sectors.basis.size(),static_cast<std::size_t>(order)+1);
+        Weight weight{irreducible_sectors(model,effective,max_charge),{}};
         weight.sectors.kernels[0].setZero(); // embed bare on-site terms separately
         std::map<State,Eigen::Index> indices;
         for (std::size_t i=0;i<weight.sectors.basis.size();++i) {
@@ -142,14 +132,9 @@ LinkedSectors linked_expand_sectors(const ClusterCatalog& catalog, const Effecti
             }
             if (!nonzero) continue;
             const auto key=normalize_kernel({excitations(model,weight.sectors.basis[i],entry.sites),excitations(model,weight.sectors.basis[j],entry.sites)});
-            if (!result.kernels.contains(key)) {
-                if (result.kernels.size()>=options.max_kernels) throw std::length_error("linked kernel budget exceeded");
-                storage.take(static_cast<std::size_t>(order)+1);
-            }
             auto& target=result.kernels[key];
             if (target.empty()) target.resize(order+1);
             for (unsigned n=1;n<=order;++n) target[n]+=value[n];
-            if (result.kernels.size()>options.max_kernels) throw std::length_error("linked kernel budget exceeded");
         }
         weights.push_back(std::move(weight));
     }

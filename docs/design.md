@@ -19,9 +19,8 @@ zero-decay term at infinity for `M(w)=0`. A nonconstant zero-decay term is an
 internal error. Words outside the preserved block bandwidth are omitted.
 
 Coefficients are generated for the actual sorted change alphabet, which need not
-be consecutive or bounded by two. The word budget checks the full enumeration
-count before allocating. The implementation generates coefficients rather than
-fitting spectra or numerically stopping a flow at a finite time.
+be consecutive or bounded by two. The implementation generates coefficients
+rather than fitting spectra or numerically stopping a flow at a finite time.
 
 A reversed-word trie shares rightmost operator applications. Each node propagates
 only the currently nonzero product states through compiled local transition
@@ -54,7 +53,7 @@ permutations to insert spectator signs. Unmarked terms use ordinary tensor
 embedding. The library does not choose a bosonic cutoff. The complete Hubbard
 Fock convention is in [hubbard.md](hubbard.md).
 
-`ClusterModel::dense_hamiltonian` is a dimension-limited validation helper;
+`ClusterModel::dense_hamiltonian` is a dense validation helper;
 Eigen diagonalization is used only in tests and for the small Bloch matrices.
 
 ## Connected colored embedded clusters
@@ -125,17 +124,13 @@ translation-normalized creation/annihilation configurations. No factorials are
 needed: configurations are site ordered, with at most one local flavor per site.
 It reconstructs the effective Hamiltonian on sectors through the requested Q;
 higher-sector interactions require a correspondingly larger external basis.
-Independent budgets bound external basis size, spectator subsets, and stored
-translation kernels. `SolverOptions::max_matrix_elements` limits each dense
-block across all orders (default 32 million complex entries). `LinkedOptions`,
-`SectorOptions`, and `OperatorOptions` also limit cumulative retained coefficient
-entries, including the next cluster allocation. Scalar linking accepts the same
-cumulative limit as its final argument. Scalar/vacuum, hopping and kernel result
-series count toward cumulative storage as well as retained weights. Allocation
-checks cover multiplication overflow and Eigen indexing before matrix creation;
-matrices are constructed individually without a temporary zero-block copy.
-These are coefficient-payload budgets, not total resident-memory limits: basis
-data, embedding plans, sparse scratch storage and allocator overhead are extra.
+There are no configurable storage or work budgets. All requested external states,
+spectator subsets, embedded subclusters and translation kernels are retained or
+processed in full. Callers are responsible for choosing feasible calculations;
+allocation failures propagate, and expensive computations have no built-in time
+limit. Matrix allocation checks still reject multiplication overflow and sizes
+that cannot fit Eigen indexing or byte-size representation. Matrices are
+constructed individually without a temporary zero-block copy.
 Tiny roundoff residues are retained, not silently pruned.
 
 ## Degenerate charge-zero operator linking
@@ -157,10 +152,13 @@ public APIs and validation.
 - One formal expansion parameter, with arbitrary fixed numerical coupling ratios.
 - Finite local Hilbert spaces and an integer equidistant H0 charge ladder.
   A unique product vacuum is required for the vacuum/particle drivers.
-- Sparse state encoding, coefficient generation, cluster enumeration and sector
-  matrices have resource budgets; failure throws an exception instead of dropping
-  states or clusters. Exact-rational arithmetic and double-valued matrix elements
-  have different precision contracts.
+- Sparse tensor dimensions must fit 64-bit state encoding; dense matrices must
+  fit Eigen indexing and byte-size representation. Supported coefficient recursion
+  and cluster orders remain limited to 64. Existing local-charge, site-count and
+  geometry bounds also remain implementation limits. No storage or work budgets
+  restrict otherwise supported calculations, and states or clusters are never
+  dropped to fit memory. Exact-rational arithmetic and double-valued matrix
+  elements have different precision contracts.
 - Large local matrices are currently supplied densely and compiled into sparse
   transitions; a matrix-free local-operator frontend is a possible extension.
 - No resummation, transformed observables, automatic statistics, white graphs,

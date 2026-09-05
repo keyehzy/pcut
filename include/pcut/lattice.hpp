@@ -46,15 +46,11 @@ struct ClusterEntry {
     std::vector<Site> sites;
     std::vector<Subcluster> subclusters; // ALL proper connected embedded subsets, including multiplicity
 };
-struct EnumerationOptions {
-    std::size_t max_clusters = 100'000;
-    std::size_t max_subclusters = 5'000'000;
-};
 // Geometry-only translation classes of colored embedded edge animals.
 // Ordered interaction legs and basis labels define colors; matrices are not stored.
 class ClusterTopology {
 public:
-    ClusterTopology(const PeriodicLattice& lattice, unsigned max_edges, EnumerationOptions options = {});
+    ClusterTopology(const PeriodicLattice& lattice, unsigned max_edges);
     [[nodiscard]] const std::vector<ClusterEntry>& entries() const noexcept { return entries_; }
     [[nodiscard]] unsigned max_edges() const noexcept { return max_edges_; }
     [[nodiscard]] bool matches(const PeriodicLattice& lattice) const noexcept;
@@ -68,7 +64,7 @@ private:
 // Numerical binding of reusable topology. Compiles each interaction type once.
 class ClusterCatalog {
 public:
-    ClusterCatalog(PeriodicLattice lattice, unsigned max_edges, EnumerationOptions options = {});
+    ClusterCatalog(PeriodicLattice lattice, unsigned max_edges);
     ClusterCatalog(PeriodicLattice lattice, std::shared_ptr<const ClusterTopology> topology);
     [[nodiscard]] const PeriodicLattice& lattice() const noexcept { return lattice_; }
     [[nodiscard]] const std::shared_ptr<const ClusterTopology>& topology() const noexcept { return topology_; }

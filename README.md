@@ -87,7 +87,7 @@ For the repulsive spinful Hubbard model, `models::hubbard_chain()` and
 Half filling is `Ne/L=1`, quarter filling is `Ne/L=1/2`. Projected hopping,
 exchange, three-site processes and all contributions through fourth order,
 including square ring exchange, are validated. See the [Hubbard guide](docs/hubbard.md)
-for conventions, public APIs, resource limits, and infinite-coupling versus
+for conventions, public APIs, computational scope, and infinite-coupling versus
 finite-spectrum distinctions.
 
 ```sh
@@ -124,9 +124,10 @@ script also checks the vacuum series through eighth order.
 
 This is a finite-order expansion, without resummation or a convergence guarantee
 at large `lambda`. Computational cost grows exponentially with perturbation order,
-charge alphabet, and cluster complexity. Explicit budgets reject oversized jobs.
-The default universal-word budget accommodates order eight for `{-2,-1,0,1,2}`;
-the library accepts larger user budgets. Sparse tensor-state IDs are 64-bit.
+charge alphabet, and cluster complexity. The library imposes no configurable
+storage or work budgets; callers choose feasible calculations and allocation
+failures propagate. Sparse tensor-state IDs are 64-bit, and dense matrix sizes
+must fit Eigen indexing and byte-size representation.
 Finite local matrices must be supplied, including any truncation of bosonic spaces
 and statistics metadata for graded fermionic terms. Couplings are numerical ratios
 multiplying one formal expansion parameter; symbolic multivariate polynomials, transformed

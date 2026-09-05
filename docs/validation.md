@@ -10,7 +10,7 @@ Run `ctest --preset release` and `ctest --preset sanitize`. The suite includes:
 - A complex two-level Hamiltonian with analytic coefficients through order six,
   including a non-unit unperturbed gap and a nonzero reference energy.
 - General charge changes, tensor-leg order, multi-site operators, Hermiticity,
-  and explicit state, coefficient, cluster and external-basis resource limits.
+  and state-encoding and dense-matrix representation limits.
 - A finite three-dimer spectrum compared with Eigen exact diagonalization. The
   fourth-order vacuum truncation error decreases with the expected fifth-order
   scaling as lambda is halved.

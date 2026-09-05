@@ -33,7 +33,7 @@ TEST_CASE("Universal coefficients match every supplied Appendix C entry", "[coef
         REQUIRE(c.at(adjoint) == value);
     }
 }
-TEST_CASE("General charge alphabet and coefficient limits", "[coefficients]") {
+TEST_CASE("General charge alphabet and coefficient input validation", "[coefficients]") {
     const pcut::Coefficients c({-3,0,3},4);
     REQUIRE(c.at({-3,3}) == pcut::Rational(-1)/3);
     REQUIRE(c.at({3,-3}) == pcut::Rational(1)/3);
@@ -41,6 +41,6 @@ TEST_CASE("General charge alphabet and coefficient limits", "[coefficients]") {
     REQUIRE(c.at({0,0}) == 0);
     REQUIRE_THROWS_AS(c.at({1}),std::invalid_argument);
     REQUIRE_THROWS_AS(c.at({}),std::out_of_range);
-    REQUIRE_THROWS_AS(pcut::Coefficients({-2,-1,0,1,2},20),std::length_error);
+    REQUIRE_THROWS_AS(pcut::Coefficients({0},65),std::invalid_argument);
     REQUIRE(pcut::Coefficients({},0).terms().empty());
 }

@@ -52,16 +52,15 @@ public:
     [[nodiscard]] bool conserves_particles() const noexcept { return conserves_particles_; }
     [[nodiscard]] bool fermionic() const noexcept { return fermionic_; }
     [[nodiscard]] const std::vector<int>& changes() const noexcept { return changes_; }
-    [[nodiscard]] SparseState apply(int change, const SparseState& state,
-                                    std::size_t max_states = 1'000'000) const;
-    [[nodiscard]] Matrix dense_hamiltonian(double lambda, State max_dimension = 4096) const;
+    [[nodiscard]] SparseState apply(int change, const SparseState& state) const;
+    [[nodiscard]] Matrix dense_hamiltonian(double lambda) const;
 private:
     friend class EffectiveOperator;
     friend class ClusterCatalog;
     static ClusterModel embedded(std::vector<LocalSpace> spaces,
         const std::vector<std::pair<const ClusterModel*,std::vector<std::size_t>>>& terms, double gap);
     [[nodiscard]] SparseState apply_scaled(int change, const SparseState& state,
-                                            std::size_t max_states, double divisor) const;
+                                            double divisor) const;
     struct Transition { State output; Complex value; };
     struct CompiledTerm {
         std::vector<std::size_t> sites;

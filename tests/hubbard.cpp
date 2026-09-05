@@ -113,8 +113,6 @@ TEST_CASE("Degenerate charge-zero spaces and strict vacuum drivers", "[hubbard][
     REQUIRE_THROWS_AS(space.validate(),std::invalid_argument);
     Matrix odd=Matrix::Zero(4,4); odd(0,1)=odd(1,0)=1;
     REQUIRE_THROWS_AS(ClusterModel({models::hubbard_site()},{{{0},odd,true}}),std::invalid_argument);
-    REQUIRE_THROWS_AS(zero_charge_basis(model,{},8),std::length_error);
-    REQUIRE_THROWS_AS(zero_charge_basis(model,{},100,1),std::length_error);
     REQUIRE(zero_charge_basis(model,3).empty());
     REQUIRE(zero_charge_basis(finite(20,{}),1000).empty());
     Matrix pair=Matrix::Zero(4,4); pair(0,3)=pair(3,0)=1;
@@ -124,12 +122,6 @@ TEST_CASE("Degenerate charge-zero spaces and strict vacuum drivers", "[hubbard][
     const ClusterModel ungraded(std::vector<LocalSpace>(2,models::hubbard_site()),
                                 {{{0,1},models::hubbard_hopping(),false}});
     REQUIRE_THROWS_AS(zero_charge_operator(ungraded,fourth()),std::invalid_argument);
-    OperatorOptions small; small.max_matrix_elements=400;
-    REQUIRE_THROWS_AS(zero_charge_operator(model,fourth(),{},small),std::length_error);
-    small={}; small.solver.max_states=1;
-    REQUIRE_THROWS_AS(zero_charge_operator(model,fourth(),{},small),std::length_error);
-    small={}; small.max_matrix_elements=405;
-    REQUIRE_THROWS_AS(linked_zero_charge(catalog,fourth(),small),std::length_error);
     REQUIRE_THROWS_AS(linked_zero_charge(ClusterCatalog(models::hubbard_chain(),3),fourth()),std::invalid_argument);
 }
 
@@ -154,7 +146,6 @@ TEST_CASE("Fermionic hopping matches global Fock matrices for nonadjacent and re
         for (unsigned n=0;n<=4;++n) near(embedded.coefficients[n],direct.coefficients[n]);
     }
     auto parent=zero_charge_operator(finite(3,{}),fourth());
-    REQUIRE_THROWS_AS(add_embedded_operator(parent,child,{0,2},1,1),std::length_error);
     REQUIRE_THROWS_AS(add_embedded_operator(parent,child,{1,1}),std::invalid_argument);
     const auto selected=zero_charge_operator(finite(2,{{0,1}}),fourth(),1);
     REQUIRE_THROWS(add_embedded_operator(parent,selected,{0,2}));
@@ -362,19 +353,16 @@ TEST_CASE("Half and quarter finite-system spectra converge to independent Hubbar
     }
 }
 
-TEST_CASE("First-order Hubbard linking ignores larger catalog animals", "[hubbard][budget]") {
+TEST_CASE("First-order Hubbard linking ignores larger catalog animals", "[hubbard]") {
     const auto lattice=pcut::models::hubbard_chain();
     const pcut::EffectiveOperator first(pcut::Coefficients(pcut::charge_changes(lattice),1));
-    pcut::OperatorOptions options; options.max_matrix_elements=162;
-    const auto small=pcut::linked_zero_charge(pcut::ClusterCatalog(lattice,1),first,options);
-    const auto large=pcut::linked_zero_charge(pcut::ClusterCatalog(lattice,2),first,options);
+    const auto small=pcut::linked_zero_charge(pcut::ClusterCatalog(lattice,1),first);
+    const auto large=pcut::linked_zero_charge(pcut::ClusterCatalog(lattice,2),first);
     REQUIRE(small.weights.size()==1);
     REQUIRE(large.weights.size()==1);
     for (unsigned n=0;n<=1;++n) REQUIRE(large.weights[0].block.coefficients[n]==small.weights[0].block.coefficients[n]);
-    options.max_matrix_elements=161;
-    REQUIRE_THROWS_AS(pcut::linked_zero_charge(pcut::ClusterCatalog(lattice,2),first,options),std::length_error);
     const pcut::EffectiveOperator zero(pcut::Coefficients(pcut::charge_changes(lattice),0));
-    REQUIRE(pcut::linked_zero_charge(pcut::ClusterCatalog(lattice,2),zero,options).weights.empty());
+    REQUIRE(pcut::linked_zero_charge(pcut::ClusterCatalog(lattice,2),zero).weights.empty());
 }
 TEST_CASE("Shared compiled Hubbard transitions preserve spectator signs", "[hubbard][sweep]") {
     auto lattice=pcut::models::hubbard_chain();
@@ -392,4 +380,14 @@ TEST_CASE("Shared compiled Hubbard transitions preserve spectator signs", "[hubb
     const auto expected=pcut::zero_charge_operator(pcut::cluster_model(lattice,{{0,{0}},{0,{1}}}),fourth());
     const auto actual=pcut::zero_charge_operator(model,fourth());
     for (unsigned n=0;n<=4;++n) near(actual.coefficients[n],expected.coefficients[n]);
+}
+
+TEST_CASE("Charge-zero basis enumeration retains the complete degenerate manifold", "[hubbard]") {
+    const auto model=finite(8,{});
+    const auto basis=pcut::zero_charge_basis(model);
+    REQUIRE(basis.size()==6561); // 3^8, beyond the former 4096-state cap
+    REQUIRE(std::is_sorted(basis.begin(),basis.end()));
+    REQUIRE(std::adjacent_find(basis.begin(),basis.end())==basis.end());
+    for (auto state : basis) REQUIRE(model.charge(state)==0);
+    REQUIRE_THROWS_AS(pcut::zero_charge_basis(model,-1),std::invalid_argument);
 }

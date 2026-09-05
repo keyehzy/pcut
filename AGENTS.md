@@ -25,7 +25,8 @@ The original research sources and their provenance live in references/.
   and Catch2/CTest for tests. Prefer existing libraries over replacement utilities.
 - Public interfaces are in include/pcut; implementations in src. Keep model
   examples separate from model-independent algorithms. Check invalid inputs and
-  resource limits explicitly. No silent truncation of intermediate Q sectors.
+  representation limits explicitly. Let allocation failures propagate; do not add
+  configurable storage or work budgets. No silent truncation of intermediate Q sectors.
 - Maintain meaningful tests: exact coefficient fixtures, analytic toy models,
   linked-cluster cancellation and embedding checks, and literature benchmarks.
 - Build and test with `cmake --preset release`, `cmake --build --preset release`,

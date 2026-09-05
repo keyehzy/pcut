@@ -26,10 +26,8 @@ EffectiveOperator::EffectiveOperator(const Coefficients& coefficients)
         nodes_[node].coefficient = c.convert_to<double>();
     }
 }
-std::vector<SparseState> EffectiveOperator::apply(const ClusterModel& model, State input,
-                                                 SolverOptions options) const {
+std::vector<SparseState> EffectiveOperator::apply(const ClusterModel& model, State input) const {
     if (input >= model.dimension()) throw std::out_of_range("effective input state");
-    if (options.max_states == 0) throw std::invalid_argument("state budget must be positive");
     for (int m : model.changes()) if (!std::binary_search(changes_.begin(), changes_.end(), m))
         throw std::invalid_argument("coefficient alphabet does not cover model charge changes");
     std::vector<SparseState> output(order_ + 1);
@@ -38,10 +36,9 @@ std::vector<SparseState> EffectiveOperator::apply(const ClusterModel& model, Sta
         const auto& node = nodes_[index];
         if (node.coefficient != 0) {
             for (const auto& [s, v] : state) output[node.depth][s] += node.coefficient * v;
-            if (output[node.depth].size() > options.max_states) throw std::length_error("output state budget exceeded");
         }
         for (const auto& [change, next] : node.children) {
-            auto transformed = model.apply_scaled(change, state, options.max_states, model.gap());
+            auto transformed = model.apply_scaled(change, state, model.gap());
             if (!transformed.empty()) visit(next, transformed);
         }
     };
@@ -54,14 +51,13 @@ std::vector<SparseState> EffectiveOperator::apply(const ClusterModel& model, Sta
     }
     return output;
 }
-std::vector<Matrix> EffectiveOperator::block(const ClusterModel& model, const std::vector<State>& basis,
-                                            SolverOptions options) const {
+std::vector<Matrix> EffectiveOperator::block(const ClusterModel& model, const std::vector<State>& basis) const {
     const std::set<State> unique(basis.begin(), basis.end());
     if (unique.size() != basis.size()) throw std::invalid_argument("duplicate block basis state");
     for (auto state : basis) if (state>=model.dimension()) throw std::out_of_range("block basis state");
-    auto result=detail::matrix_series(basis.size(),static_cast<std::size_t>(order_)+1,options.max_matrix_elements);
+    auto result=detail::matrix_series(basis.size(),static_cast<std::size_t>(order_)+1);
     for (std::size_t col = 0; col < basis.size(); ++col) {
-        const auto action = apply(model, basis[col], options);
+        const auto action = apply(model, basis[col]);
         for (unsigned n = 0; n <= order_; ++n)
             for (std::size_t row = 0; row < basis.size(); ++row) {
                 const auto it = action[n].find(basis[row]);
@@ -70,9 +66,9 @@ std::vector<Matrix> EffectiveOperator::block(const ClusterModel& model, const st
     }
     return result;
 }
-Series EffectiveOperator::vacuum(const ClusterModel& model, SolverOptions options) const {
+Series EffectiveOperator::vacuum(const ClusterModel& model) const {
     model.require_product_vacuum();
-    const auto action = apply(model, 0, options);
+    const auto action = apply(model, 0);
     Series result(order_+1);
     for (unsigned n = 0; n <= order_; ++n) {
         const auto it = action[n].find(0);

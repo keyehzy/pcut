@@ -180,10 +180,10 @@ void ClusterModel::require_operator_grading() const {
     if (!operator_grading_valid_)
         throw std::invalid_argument("operator linking requires complete parity metadata and graded parity-changing terms");
 }
-SparseState ClusterModel::apply(int change, const SparseState& input, std::size_t max_states) const {
-    return apply_scaled(change,input,max_states,1.0);
+SparseState ClusterModel::apply(int change, const SparseState& input) const {
+    return apply_scaled(change,input,1.0);
 }
-SparseState ClusterModel::apply_scaled(int change, const SparseState& input, std::size_t max_states, double divisor) const {
+SparseState ClusterModel::apply_scaled(int change, const SparseState& input, double divisor) const {
     SparseState result;
     for (const auto& [state, amplitude] : input) {
         if (state >= dimension_ || !std::isfinite(amplitude.real()) || !std::isfinite(amplitude.imag()))
@@ -213,7 +213,6 @@ SparseState ClusterModel::apply_scaled(int change, const SparseState& input, std
                     parity ^= (pa(state,a) & pa(state,b)) ^ (pa(output,a) & pa(output,b));
                 }
                 result[output] += (parity ? -amplitude : amplitude) * (transition.value / divisor);
-                if (result.size() > max_states) throw std::length_error("sparse intermediate-state budget exceeded");
             }
         }
     }
@@ -222,10 +221,11 @@ SparseState ClusterModel::apply_scaled(int change, const SparseState& input, std
         if (it->second == Complex{}) it = result.erase(it); else ++it;
     return result;
 }
-Matrix ClusterModel::dense_hamiltonian(double lambda, State max_dimension) const {
+Matrix ClusterModel::dense_hamiltonian(double lambda) const {
     if (!std::isfinite(lambda)) throw std::invalid_argument("lambda must be finite");
-    if (dimension_ > max_dimension || dimension_ > static_cast<State>(std::numeric_limits<Eigen::Index>::max()))
-        throw std::length_error("dense validation matrix exceeds dimension limit");
+    if (dimension_ > std::numeric_limits<std::size_t>::max())
+        throw std::length_error("dense matrix dimension exceeds size_t");
+    detail::check_matrix_size(static_cast<std::size_t>(dimension_));
     Matrix h = Matrix::Zero(static_cast<Eigen::Index>(dimension_), static_cast<Eigen::Index>(dimension_));
     for (State i = 0; i < dimension_; ++i) {
         h(static_cast<Eigen::Index>(i), static_cast<Eigen::Index>(i)) = vacuum_energy() + gap_ * charge(i);

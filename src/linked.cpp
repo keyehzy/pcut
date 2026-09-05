@@ -13,17 +13,14 @@ void check_order(const ClusterCatalog& catalog, unsigned order) {
 }
 }
 ScalarExpansion linked_scalar(const ClusterCatalog& catalog, unsigned order,
-                               const ClusterEvaluator& evaluate_cluster, Complex reference_per_cell, std::size_t max_matrix_elements) {
+                               const ClusterEvaluator& evaluate_cluster, Complex reference_per_cell) {
     check_order(catalog, order);
     if (!std::isfinite(reference_per_cell.real()) || !std::isfinite(reference_per_cell.imag()))
         throw std::invalid_argument("nonfinite reference energy");
-    detail::StorageBudget storage{max_matrix_elements};
-    storage.take(static_cast<std::size_t>(order)+1);
     ScalarExpansion result{Series(order+1), {}};
     result.per_cell[0] = reference_per_cell;
     for (const auto& entry : catalog.entries()) {
         if (entry.edges.size()>order) break;
-        storage.take(static_cast<std::size_t>(order)+1);
         Series weight = evaluate_cluster(catalog.model(entry.edges));
         if (weight.size() != order+1 || weight[0] != Complex{})
             throw std::invalid_argument("scalar callback must return order+1 corrections with zero constant");
@@ -50,8 +47,6 @@ LinkedResult linked_expand(const ClusterCatalog& catalog, const EffectiveOperato
     check_order(catalog,order);
     const auto& lattice = catalog.lattice();
     for (const auto& space : lattice.cell) space.require_product_vacuum();
-    detail::StorageBudget storage{options.max_matrix_elements};
-    storage.take(static_cast<std::size_t>(order)+1);
     LinkedResult result;
     result.dimension = lattice.dimension;
     result.energy_per_cell.resize(order+1);
@@ -61,7 +56,6 @@ LinkedResult linked_expand(const ClusterCatalog& catalog, const EffectiveOperato
             if (lattice.cell[b].charges[local] == 1) result.flavors.push_back({b,local});
     }
     for (std::size_t a = 0; a < result.flavors.size(); ++a) {
-        storage.take(static_cast<std::size_t>(order)+1);
         Series s(order+1); s[0] = lattice.gap;
         result.hopping.emplace(Hopping{a,a,Coordinate(lattice.dimension,0)},std::move(s));
     }
@@ -69,9 +63,8 @@ LinkedResult linked_expand(const ClusterCatalog& catalog, const EffectiveOperato
     std::vector<Weight> weights;
     for (const auto& entry : catalog.entries()) {
         if (entry.edges.size()>order) break;
-        storage.take(static_cast<std::size_t>(order)+1);
         const auto model = catalog.model(entry.edges);
-        const auto raw_energy = effective.vacuum(model, options.solver);
+        const auto raw_energy = effective.vacuum(model);
         auto energy = raw_energy;
         energy[0] = 0;
         Weight weight;
@@ -79,8 +72,7 @@ LinkedResult linked_expand(const ClusterCatalog& catalog, const EffectiveOperato
             weight.basis = one_particle_basis(model);
             std::vector<State> states;
             for (const auto& p : weight.basis) states.push_back(p.state);
-            storage.matrices(states.size(),static_cast<std::size_t>(order)+1);
-            weight.h1 = effective.block(model, states, options.solver);
+            weight.h1 = effective.block(model, states);
             weight.h1[0].setZero(); // bare gap already embedded once per local flavor
             for (unsigned n = 1; n <= order; ++n) weight.h1[n].diagonal().array() -= raw_energy[n];
         }
@@ -110,7 +102,6 @@ LinkedResult linked_expand(const ClusterCatalog& catalog, const EffectiveOperato
                 const auto in_flavor = static_cast<std::size_t>(std::lower_bound(result.flavors.begin(),result.flavors.end(),Flavor{in_site.basis,in.local})-result.flavors.begin());
                 auto displacement=detail::translate(out_site.cell,in_site.cell,-1);
                 Hopping key{out_flavor,in_flavor,std::move(displacement)};
-                if (!result.hopping.contains(key)) storage.take(static_cast<std::size_t>(order)+1);
                 auto& series = result.hopping[key];
                 if (series.empty()) series.resize(order+1);
                 for (unsigned n = 1; n <= order; ++n)
@@ -121,10 +112,10 @@ LinkedResult linked_expand(const ClusterCatalog& catalog, const EffectiveOperato
     }
     return result;
 }
-std::vector<Matrix> LinkedResult::bloch_series(const std::vector<double>& k, std::size_t max_matrix_elements) const {
+std::vector<Matrix> LinkedResult::bloch_series(const std::vector<double>& k) const {
     if (k.size() != dimension || !std::all_of(k.begin(),k.end(),[](double x){return std::isfinite(x);}))
         throw std::invalid_argument("invalid momentum dimension or value");
-    auto result=detail::matrix_series(flavors.size(),energy_per_cell.size(),max_matrix_elements);
+    auto result=detail::matrix_series(flavors.size(),energy_per_cell.size());
     for (const auto& [h,s] : hopping) {
         double phase = 0;
         for (unsigned d = 0; d < dimension; ++d) phase -= k[d]*h.displacement[d];
@@ -134,9 +125,9 @@ std::vector<Matrix> LinkedResult::bloch_series(const std::vector<double>& k, std
     }
     return result;
 }
-Matrix LinkedResult::bloch(const std::vector<double>& k, double lambda, std::size_t max_matrix_elements) const {
+Matrix LinkedResult::bloch(const std::vector<double>& k, double lambda) const {
     if (!std::isfinite(lambda)) throw std::invalid_argument("lambda must be finite");
-    const auto coefficients = bloch_series(k,max_matrix_elements);
+    const auto coefficients = bloch_series(k);
     Matrix result = Matrix::Zero(static_cast<Eigen::Index>(flavors.size()),static_cast<Eigen::Index>(flavors.size()));
     for (auto it = coefficients.rbegin(); it != coefficients.rend(); ++it) result = lambda*result + *it;
     return result;

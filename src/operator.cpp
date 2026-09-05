@@ -11,10 +11,9 @@
 namespace pcut {
 namespace {
 OperatorBlock empty_block(const ClusterModel& model, unsigned order,
-                          std::optional<int> particles, OperatorOptions options) {
-    OperatorBlock block{model.spaces(),zero_charge_basis(model,particles,options.max_basis,options.max_basis_visits),{}};
-    block.coefficients=detail::matrix_series(block.basis.size(),static_cast<std::size_t>(order)+1,
-        std::min(options.max_matrix_elements,options.solver.max_matrix_elements));
+                          std::optional<int> particles) {
+    OperatorBlock block{model.spaces(),zero_charge_basis(model,particles),{}};
+    block.coefficients=detail::matrix_series(block.basis.size(),static_cast<std::size_t>(order)+1);
     return block;
 }
 void validate_block(const OperatorBlock& block, const ClusterModel& model) {
@@ -29,9 +28,8 @@ void validate_block(const OperatorBlock& block, const ClusterModel& model) {
             throw std::invalid_argument("invalid operator matrix");
 }
 }
-std::vector<State> zero_charge_basis(const ClusterModel& model, std::optional<int> particles,
-                                     std::size_t max_basis, std::size_t max_visits) {
-    if (!max_basis || (particles && *particles<0)) throw std::invalid_argument("invalid external basis limit or particle number");
+std::vector<State> zero_charge_basis(const ClusterModel& model, std::optional<int> particles) {
+    if (particles && *particles<0) throw std::invalid_argument("invalid particle number");
     if (particles) for (const auto& space : model.spaces()) if (space.particles.empty())
         throw std::invalid_argument("particle selection requires metadata");
     std::vector<int> lower(model.sites()+1), upper(model.sites()+1);
@@ -43,15 +41,12 @@ std::vector<State> zero_charge_basis(const ClusterModel& model, std::optional<in
         }
         lower[s-1]=lower[s]+lo; upper[s-1]=upper[s]+hi;
     }
-    std::size_t visits=0;
     std::vector<State> result;
     std::vector<unsigned> local(model.sites());
     std::function<void(std::size_t,int)> visit=[&](std::size_t site,int number) {
-        if (++visits>max_visits) throw std::length_error("external basis traversal budget exceeded");
         if (particles && (number+lower[site]>*particles || number+upper[site]<*particles)) return;
         if (site==model.sites()) {
             if (!particles || number==*particles) {
-                if (result.size()>=max_basis) throw std::length_error("charge-zero basis budget exceeded");
                 result.push_back(model.encode(local));
             }
             return;
@@ -68,13 +63,12 @@ std::vector<State> zero_charge_basis(const ClusterModel& model, std::optional<in
     return result;
 }
 OperatorBlock zero_charge_operator(const ClusterModel& model, const EffectiveOperator& effective,
-                                   std::optional<int> particles, OperatorOptions options) {
+                                   std::optional<int> particles) {
     model.require_operator_grading();
     if (particles && !model.conserves_particles())
         throw std::invalid_argument("selected particle number is not conserved by the model");
-    OperatorBlock result{model.spaces(),zero_charge_basis(model,particles,options.max_basis,options.max_basis_visits),{}};
-    options.solver.max_matrix_elements=std::min(options.solver.max_matrix_elements,options.max_matrix_elements);
-    result.coefficients=effective.block(model,result.basis,options.solver);
+    OperatorBlock result{model.spaces(),zero_charge_basis(model,particles),{}};
+    result.coefficients=effective.block(model,result.basis);
     return result;
 }
 Matrix OperatorBlock::evaluate(double lambda) const {
@@ -127,8 +121,7 @@ struct EmbeddingPlan {
     const EmbeddingBasis& child;
     const std::vector<std::size_t>& map;
     std::vector<std::pair<std::size_t,std::size_t>> inversions;
-    EmbeddingPlan(const EmbeddingBasis& p, const EmbeddingBasis& c, const std::vector<std::size_t>& m,
-                  std::size_t orders, std::size_t max_work) : parent(p), child(c), map(m) {
+    EmbeddingPlan(const EmbeddingBasis& p, const EmbeddingBasis& c, const std::vector<std::size_t>& m) : parent(p), child(c), map(m) {
         if (map.size()!=child.model.sites()) throw std::invalid_argument("operator embedding shape mismatch");
         inversions=detail::gather_inversions(parent.model.sites(),map);
         for (std::size_t s=0;s<map.size();++s) {
@@ -136,9 +129,6 @@ struct EmbeddingPlan {
             if (a.charges!=b.charges || a.particles!=b.particles || a.parity!=b.parity)
                 throw std::invalid_argument("incompatible embedded local spaces");
         }
-        const auto nc=child.decoded.size(), np=parent.decoded.size();
-        if (nc && np && (np>max_work/nc || orders>max_work/nc/np))
-            throw std::length_error("operator embedding work budget exceeded");
     }
     void add(OperatorBlock& target, const OperatorBlock& source, Complex scale) const {
         std::vector<unsigned> selected(map.size());
@@ -164,31 +154,27 @@ struct EmbeddingPlan {
 };
 }
 void add_embedded_operator(OperatorBlock& parent, const OperatorBlock& child,
-                           const std::vector<std::size_t>& map, Complex scale, std::size_t max_work) {
+                           const std::vector<std::size_t>& map, Complex scale) {
     if (&parent==&child) throw std::invalid_argument("operator embedding must not alias");
     if (parent.coefficients.size()!=child.coefficients.size() ||
         !std::isfinite(scale.real()) || !std::isfinite(scale.imag()))
         throw std::invalid_argument("operator embedding shape or scale mismatch");
     const EmbeddingBasis p(parent), c(child);
     c.require_child(child);
-    EmbeddingPlan(p,c,map,child.coefficients.size(),max_work).add(parent,child,scale);
+    EmbeddingPlan(p,c,map).add(parent,child,scale);
 }
-LinkedOperator linked_zero_charge(const ClusterCatalog& catalog, const EffectiveOperator& effective,
-                                  OperatorOptions options) {
+LinkedOperator linked_zero_charge(const ClusterCatalog& catalog, const EffectiveOperator& effective) {
     if (catalog.max_edges()<effective.order()) throw std::invalid_argument("catalog must cover operator order");
     LinkedOperator result{catalog.lattice(),effective.order(),{}};
-    std::size_t stored=0;
     std::vector<EmbeddingBasis> bases;
     for (const auto& entry : catalog.entries()) {
         if (entry.edges.size()>effective.order()) break;
         const auto model=catalog.model(entry.edges);
-        auto remaining=options; remaining.max_matrix_elements-=stored;
-        auto block=zero_charge_operator(model,effective,{},remaining);
-        stored+=detail::matrix_size(block.basis.size(),block.coefficients.size(),remaining.max_matrix_elements);
+        auto block=zero_charge_operator(model,effective);
         block.coefficients[0].setZero(); // only bare reference constants at Q=0
         EmbeddingBasis parent(block);
         for (const auto& sub : entry.subclusters)
-            EmbeddingPlan(parent,bases.at(sub.index),sub.vertex_map,block.coefficients.size(),options.max_embedding_work)
+            EmbeddingPlan(parent,bases.at(sub.index),sub.vertex_map)
                 .add(block,result.weights.at(sub.index).block,-1);
         bases.push_back(std::move(parent));
         result.weights.push_back({entry.edges,entry.sites,std::move(block)});
@@ -196,7 +182,7 @@ LinkedOperator linked_zero_charge(const ClusterCatalog& catalog, const Effective
     return result;
 }
 OperatorBlock assemble_operator(const LinkedOperator& linked, const std::vector<Site>& sites,
-                                const Cluster& edges, std::optional<int> particles, OperatorOptions options) {
+                                const Cluster& edges, std::optional<int> particles) {
     linked.lattice.validate();
     std::map<Site,std::size_t> indices;
     std::vector<LocalSpace> spaces;
@@ -213,7 +199,7 @@ OperatorBlock assemble_operator(const LinkedOperator& linked, const std::vector<
     for (const auto& site : vertices(linked.lattice,edges)) if (!indices.contains(site))
         throw std::invalid_argument("assembly edge has missing vertex");
     const ClusterModel model(spaces,{},linked.lattice.gap);
-    auto result=empty_block(model,linked.order,particles,options);
+    auto result=empty_block(model,linked.order,particles);
     result.coefficients[0].diagonal().setConstant(model.vacuum_energy());
     const EmbeddingBasis parent(result);
     for (const auto& weight : linked.weights) {
@@ -235,7 +221,7 @@ OperatorBlock assemble_operator(const LinkedOperator& linked, const std::vector<
             for (auto site : weight.sites) {
                 site.cell=detail::translate(site.cell,shift); map.push_back(indices.at(site));
             }
-            EmbeddingPlan(parent,child,map,weight.block.coefficients.size(),options.max_embedding_work).add(result,weight.block,1);
+            EmbeddingPlan(parent,child,map).add(result,weight.block,1);
         }
     }
     return result;

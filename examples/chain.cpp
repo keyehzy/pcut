@@ -42,7 +42,7 @@ int main(int argc, char** argv) {
         const pcut::Coefficients coefficients(pcut::charge_changes(lattice),order);
         const pcut::EffectiveOperator effective(coefficients);
         const pcut::ClusterCatalog catalog(lattice,order);
-        const auto result = pcut::linked_expand(catalog,effective,{particles,{}});
+        const auto result = pcut::linked_expand(catalog,effective,{particles});
         std::cout << std::setprecision(15);
         std::cout << "# alpha=" << alpha << " order=" << order << " clusters=" << catalog.entries().size()
                   << " universal_terms=" << coefficients.terms().size() << '\n';
