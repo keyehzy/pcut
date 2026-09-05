@@ -37,6 +37,7 @@ class ClusterModel {
 public:
     ClusterModel(std::vector<LocalSpace> spaces, std::vector<LocalTerm> terms,
                  double gap = 1.0);
+    [[nodiscard]] ClusterModel reordered(const std::vector<std::size_t>& source_to_target) const;
     [[nodiscard]] const std::vector<LocalSpace>& spaces() const noexcept { return spaces_; }
     [[nodiscard]] std::size_t sites() const noexcept { return spaces_.size(); }
     [[nodiscard]] State dimension() const noexcept { return dimension_; }
@@ -56,11 +57,8 @@ public:
     [[nodiscard]] Matrix dense_hamiltonian(double lambda) const;
 private:
     friend class EffectiveOperator;
-    friend class ClusterCatalog;
-    static ClusterModel embedded(std::vector<LocalSpace> spaces,
-        const std::vector<std::pair<const ClusterModel*,std::vector<std::size_t>>>& terms, double gap);
     [[nodiscard]] SparseState apply_scaled(int change, const SparseState& state,
-                                            double divisor) const;
+                                            double divisor, std::size_t channel = static_cast<std::size_t>(-1)) const;
     struct Transition { State output; Complex value; };
     struct CompiledTerm {
         std::vector<std::size_t> sites;

@@ -31,7 +31,7 @@ struct LinkedSectors {
     // Sum each key over all unit-cell translations to reconstruct H_eff.
     std::map<Kernel, Series> kernels;
 };
-[[nodiscard]] LinkedSectors linked_expand_sectors(const ClusterCatalog& catalog,
+[[nodiscard]] LinkedSectors linked_expand_sectors(const WhiteGraphExpansion& catalog,
                                                  const EffectiveOperator& effective,
                                                  unsigned max_charge);
 }

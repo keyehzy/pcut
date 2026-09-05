@@ -9,9 +9,10 @@
 
 TEST_CASE("Dimer chain vacuum matches literature through sixth order", "[chain][literature]") {
     const pcut::EffectiveOperator effective(pcut::Coefficients({-2,-1,0,1,2},6));
+    const pcut::WhiteGraphExpansion topology(pcut::models::dimerized_chain(0),6);
     for (double a : {0.0,0.17,0.5}) {
         INFO("alpha=" << a);
-        const auto result=pcut::linked_expand(pcut::ClusterCatalog(pcut::models::dimerized_chain(a),6),effective,{false});
+        const auto result=pcut::linked_expand(topology.bind(pcut::models::dimerized_chain(a).couplings()),effective,{false});
         const double b=std::pow(1-2*a,2);
         // cond-mat/9906243 Eq. E_grund: per SPIN, lambda_bar=lambda/4;
         // restore the physical -3/8 reference and multiply by two per dimer.
@@ -29,10 +30,11 @@ TEST_CASE("Dimer chain vacuum matches literature through sixth order", "[chain][
     }
 }
 TEST_CASE("Dimer one-particle hopping obeys first-order spin algebra", "[chain]") {
+    const pcut::WhiteGraphExpansion topology(pcut::models::dimerized_chain(0),3);
     for (double a : {0.0,0.23,0.5}) {
         const auto lattice=pcut::models::dimerized_chain(a);
         const pcut::EffectiveOperator effective(pcut::Coefficients({-2,-1,0,1,2},3));
-        const auto result=pcut::linked_expand(pcut::ClusterCatalog(lattice,3),effective);
+        const auto result=pcut::linked_expand(topology.bind(lattice.couplings()),effective);
         const auto it=result.hopping.find({0,0,{1}});
         REQUIRE(it!=result.hopping.end());
         REQUIRE(it->second[1].real()==Catch::Approx(-(1-2*a)/4).margin(1e-12));
@@ -47,9 +49,10 @@ TEST_CASE("Dimer one-particle hopping obeys first-order spin algebra", "[chain]"
 
 TEST_CASE("Dimer dispersion matches Appendix D through sixth order", "[chain][literature]") {
     const pcut::EffectiveOperator effective(pcut::Coefficients({-2,-1,0,1,2},6));
+    const pcut::WhiteGraphExpansion topology(pcut::models::dimerized_chain(0),6);
     for (double a : {0.0,0.23,0.5}) {
         INFO("alpha=" << a);
-        const auto result=pcut::linked_expand(pcut::ClusterCatalog(pcut::models::dimerized_chain(a),6),effective);
+        const auto result=pcut::linked_expand(topology.bind(pcut::models::dimerized_chain(a).couplings()),effective);
         std::ifstream file(PCUT_TEST_DATA "/chain_hopping.tsv");
         REQUIRE(file.good());
         std::string line;

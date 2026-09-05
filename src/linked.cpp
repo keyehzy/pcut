@@ -8,28 +8,30 @@
 
 namespace pcut {
 namespace {
-void check_order(const ClusterCatalog& catalog, unsigned order) {
+void check_order(const WhiteGraphExpansion& catalog, unsigned order) {
     if (catalog.max_edges() < order) throw std::invalid_argument("catalog must include clusters through perturbation order");
 }
 }
-ScalarExpansion linked_scalar(const ClusterCatalog& catalog, unsigned order,
-                               const ClusterEvaluator& evaluate_cluster, Complex reference_per_cell) {
+ScalarExpansion linked_scalar(const WhiteGraphExpansion& catalog, unsigned order,
+                               const ScalarEvaluator& evaluator, Complex reference_per_cell) {
     check_order(catalog, order);
     if (!std::isfinite(reference_per_cell.real()) || !std::isfinite(reference_per_cell.imag()))
         throw std::invalid_argument("nonfinite reference energy");
     ScalarExpansion result{Series(order+1), {}};
-    result.per_cell[0] = reference_per_cell;
-    for (const auto& entry : catalog.entries()) {
-        if (entry.edges.size()>order) break;
-        Series weight = evaluate_cluster(catalog.model(entry.edges));
-        if (weight.size() != order+1 || weight[0] != Complex{})
-            throw std::invalid_argument("scalar callback must return order+1 corrections with zero constant");
-        for (const auto& c : weight) if (!std::isfinite(c.real()) || !std::isfinite(c.imag()))
-            throw std::invalid_argument("nonfinite scalar cluster value");
-        for (const auto& sub : entry.subclusters)
-            for (unsigned n = 1; n <= order; ++n) weight[n] -= result.weights[sub.index][n];
-        for (unsigned n = 1; n <= order; ++n) result.per_cell[n] += weight[n];
-        result.weights.push_back(std::move(weight));
+    result.per_cell[0]=reference_per_cell;
+    std::vector<SymbolicSeries> weights;
+    for (const auto& entry : catalog.graphs()) {
+        if (entry.canonical.graph.edges.size()>order) break;
+        auto weight=*catalog.cache()->scalar(entry.canonical,catalog.lattice().gap,order,evaluator);
+        for (const auto& sub : entry.subclusters) for (unsigned n=1;n<=order;++n)
+            add_polynomial(weight[n],weights[sub.graph][n],-1,&sub.map.channels);
+        weights.push_back(std::move(weight));
+    }
+    for (const auto& embedding : catalog.embeddings()) {
+        if (embedding.edges.size()>order) break;
+        auto value=substitute(weights[embedding.graph],catalog.couplings(embedding));
+        for (unsigned n=1;n<=order;++n) result.per_cell[n]+=value[n];
+        result.weights.push_back(std::move(value));
     }
     return result;
 }
@@ -37,12 +39,16 @@ std::vector<int> charge_changes(const PeriodicLattice& lattice) {
     lattice.validate();
     std::set<int> changes;
     for (std::size_t type = 0; type < lattice.interactions.size(); ++type) {
-        const auto model = cluster_model(lattice, {{type, Coordinate(lattice.dimension,0)}});
+        auto uncolored=lattice;
+        for (auto& channel : uncolored.interactions[type].channels) channel.coupling=1;
+        // Include every channel separately: cancellation or zero couplings must
+        // not remove a letter from the symbolic coefficient alphabet.
+        const auto model = cluster_model(uncolored, {{type, Coordinate(lattice.dimension,0)}});
         changes.insert(model.changes().begin(),model.changes().end());
     }
     return {changes.begin(),changes.end()};
 }
-LinkedResult linked_expand(const ClusterCatalog& catalog, const EffectiveOperator& effective, LinkedOptions options) {
+LinkedResult linked_expand(const WhiteGraphExpansion& catalog, const EffectiveOperator& effective, LinkedOptions options) {
     const auto order = effective.order();
     check_order(catalog,order);
     const auto& lattice = catalog.lattice();
@@ -60,36 +66,24 @@ LinkedResult linked_expand(const ClusterCatalog& catalog, const EffectiveOperato
         result.hopping.emplace(Hopping{a,a,Coordinate(lattice.dimension,0)},std::move(s));
     }
     struct Weight { std::vector<ParticleState> basis; std::vector<Matrix> h1; };
-    std::vector<Weight> weights;
-    for (const auto& entry : catalog.entries()) {
+    for (const auto& entry : catalog.embeddings()) {
         if (entry.edges.size()>order) break;
-        const auto model = catalog.model(entry.edges);
-        const auto raw_energy = effective.vacuum(model);
-        auto energy = raw_energy;
-        energy[0] = 0;
+        const auto& model = catalog.structural_model(entry);
         Weight weight;
+        std::vector<State> states{0};
         if (options.one_particle) {
-            weight.basis = one_particle_basis(model);
-            std::vector<State> states;
+            weight.basis=one_particle_basis(model);
             for (const auto& p : weight.basis) states.push_back(p.state);
-            weight.h1 = effective.block(model, states);
-            weight.h1[0].setZero(); // bare gap already embedded once per local flavor
-            for (unsigned n = 1; n <= order; ++n) weight.h1[n].diagonal().array() -= raw_energy[n];
         }
-        for (const auto& sub : entry.subclusters) {
-            for (unsigned n = 1; n <= order; ++n) energy[n] -= result.vacuum_weights[sub.index][n];
-            if (options.one_particle) {
-                const auto& child = weights[sub.index];
-                std::vector<Eigen::Index> map;
-                for (const auto& p : child.basis) {
-                    const auto parent_site = sub.vertex_map[p.site];
-                    const auto it = std::find_if(weight.basis.begin(),weight.basis.end(),[&](const ParticleState& s) {
-                        return s.site == parent_site && s.local == p.local;
-                    });
-                    if (it == weight.basis.end()) throw std::logic_error("one-particle embedding mismatch");
-                    map.push_back(static_cast<Eigen::Index>(it-weight.basis.begin()));
-                }
-                detail::subtract_mapped(weight.h1,child.h1,map);
+        const auto raw=catalog.block(entry,effective,states,true);
+        Series raw_energy(order+1);
+        for (unsigned n=0;n<=order;++n) raw_energy[n]=raw[n](0,0);
+        auto energy=raw_energy; energy[0]=0;
+        if (options.one_particle) {
+            weight.h1=detail::matrix_series(weight.basis.size(),order+1);
+            for (unsigned n=1;n<=order;++n) {
+                weight.h1[n]=raw[n].bottomRightCorner(static_cast<Eigen::Index>(weight.basis.size()),static_cast<Eigen::Index>(weight.basis.size()));
+                weight.h1[n].diagonal().array()-=raw_energy[n];
             }
         }
         for (unsigned n = 1; n <= order; ++n) result.energy_per_cell[n] += energy[n];
@@ -108,7 +102,6 @@ LinkedResult linked_expand(const ClusterCatalog& catalog, const EffectiveOperato
                     series[n] += weight.h1[n](static_cast<Eigen::Index>(i),static_cast<Eigen::Index>(j));
             }
         }
-        weights.push_back(std::move(weight));
     }
     return result;
 }

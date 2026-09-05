@@ -11,17 +11,25 @@ struct Site {
     std::size_t basis = 0;
     auto operator<=>(const Site&) const = default;
 };
+struct OperatorChannel {
+    Matrix matrix; // fixed Hermitian operator, in physical energy units
+    bool fermionic = false;
+};
+struct CoupledChannel {
+    OperatorChannel op;
+    double coupling = 1; // dimensionless ratio; all channels share one lambda
+};
 struct Interaction {
     std::vector<Site> legs; // ordered offsets and unit-cell basis labels
-    Matrix matrix;
-    bool fermionic = false; // even operator in ordered-leg Fock basis
+    std::vector<CoupledChannel> channels;
 };
 struct PeriodicLattice {
     unsigned dimension = 1;
     std::vector<LocalSpace> cell;
-    std::vector<Interaction> interactions; // distinct colored hyperedge templates
+    std::vector<Interaction> interactions; // distinct physical hyperedge templates
     double gap = 1.0;
     void validate() const;
+    [[nodiscard]] std::vector<std::vector<double>> couplings() const;
 };
 struct Edge {
     std::size_t type;
@@ -37,43 +45,4 @@ struct NormalizedCluster {
 [[nodiscard]] std::vector<Site> vertices(const PeriodicLattice& lattice, const Cluster& cluster);
 [[nodiscard]] bool connected(const PeriodicLattice& lattice, const Cluster& cluster);
 [[nodiscard]] ClusterModel cluster_model(const PeriodicLattice& lattice, const Cluster& cluster);
-struct Subcluster {
-    std::size_t index;
-    std::vector<std::size_t> vertex_map; // normalized child's vertices -> parent's vertices
-};
-struct ClusterEntry {
-    Cluster edges;
-    std::vector<Site> sites;
-    std::vector<Subcluster> subclusters; // ALL proper connected embedded subsets, including multiplicity
-};
-// Geometry-only translation classes of colored embedded edge animals.
-// Ordered interaction legs and basis labels define colors; matrices are not stored.
-class ClusterTopology {
-public:
-    ClusterTopology(const PeriodicLattice& lattice, unsigned max_edges);
-    [[nodiscard]] const std::vector<ClusterEntry>& entries() const noexcept { return entries_; }
-    [[nodiscard]] unsigned max_edges() const noexcept { return max_edges_; }
-    [[nodiscard]] bool matches(const PeriodicLattice& lattice) const noexcept;
-private:
-    unsigned dimension_;
-    std::size_t cell_size_;
-    std::vector<std::vector<Site>> legs_;
-    unsigned max_edges_;
-    std::vector<ClusterEntry> entries_;
-};
-// Numerical binding of reusable topology. Compiles each interaction type once.
-class ClusterCatalog {
-public:
-    ClusterCatalog(PeriodicLattice lattice, unsigned max_edges);
-    ClusterCatalog(PeriodicLattice lattice, std::shared_ptr<const ClusterTopology> topology);
-    [[nodiscard]] const PeriodicLattice& lattice() const noexcept { return lattice_; }
-    [[nodiscard]] const std::shared_ptr<const ClusterTopology>& topology() const noexcept { return topology_; }
-    [[nodiscard]] const std::vector<ClusterEntry>& entries() const noexcept { return topology_->entries(); }
-    [[nodiscard]] unsigned max_edges() const noexcept { return topology_->max_edges(); }
-    [[nodiscard]] ClusterModel model(const Cluster& cluster) const;
-private:
-    PeriodicLattice lattice_;
-    std::shared_ptr<const ClusterTopology> topology_;
-    std::vector<ClusterModel> interactions_;
-};
 }

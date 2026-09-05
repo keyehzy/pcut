@@ -69,7 +69,8 @@ its spectator contraction is not a fermionic normal-ordering rule.
 
 `zero_charge_operator` evaluates `P H_eff P`, where `P` is the full tensor product
 of local charge-zero projectors. It never truncates intermediate charge sectors.
-`linked_zero_charge` forms, for each connected colored embedded edge set `C`,
+`linked_zero_charge` reuses a canonical white-graph symbolic block for each
+connected physical embedding `C`, then forms
 
 ```
 W(C) = P_C H_eff(C) P_C - E_ref(C) I
@@ -107,7 +108,7 @@ an infinite-lattice spectrum or a finite-size estimate of one.
 const auto lattice = pcut::models::hubbard_square();
 const pcut::Coefficients coefficients({-1,0,1}, 4);
 const pcut::EffectiveOperator effective(coefficients);
-const pcut::ClusterCatalog catalog(lattice, 4);
+const pcut::WhiteGraphExpansion catalog(lattice, 4);
 const auto linked = pcut::linked_zero_charge(catalog, effective);
 
 // One open square; template 0 is horizontal, template 1 vertical.
@@ -216,5 +217,6 @@ large-system sparse many-body eigensolver. Custom hopping geometries can be
 supplied through `PeriodicLattice` or direct `ClusterModel` terms.
 
 No resummation or convergence guarantee at large `t/U`, transformed observables,
-thermodynamic phase solver, or white graphs are supplied. Preserve the chosen
+or thermodynamic phase solver is supplied. White-graph caching supports arbitrary
+numerical hopping ratios with the same fixed graded channel operators. Preserve the chosen
 unitary convention when using these couplings in another many-body solver.

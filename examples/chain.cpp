@@ -41,10 +41,12 @@ int main(int argc, char** argv) {
         const auto lattice = pcut::models::dimerized_chain(alpha);
         const pcut::Coefficients coefficients(pcut::charge_changes(lattice),order);
         const pcut::EffectiveOperator effective(coefficients);
-        const pcut::ClusterCatalog catalog(lattice,order);
+        const pcut::WhiteGraphExpansion catalog(lattice,order);
         const auto result = pcut::linked_expand(catalog,effective,{particles});
         std::cout << std::setprecision(15);
-        std::cout << "# alpha=" << alpha << " order=" << order << " clusters=" << catalog.entries().size()
+        std::cout << "# alpha=" << alpha << " order=" << order << " graphs=" << catalog.graphs().size()
+                  << " embeddings=" << catalog.embeddings().size()
+                  << " graph_evaluations=" << catalog.cache()->evaluations()
                   << " universal_terms=" << coefficients.terms().size() << '\n';
         std::cout << "order,energy_per_dimer,energy_per_spin";
         if (particles) std::cout << ",omega_k";

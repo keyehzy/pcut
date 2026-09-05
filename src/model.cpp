@@ -116,25 +116,21 @@ ClusterModel::ClusterModel(std::vector<LocalSpace> spaces, std::vector<LocalTerm
     }
     changes_.assign(changes.begin(), changes.end());
 }
-ClusterModel ClusterModel::embedded(std::vector<LocalSpace> spaces,
-    const std::vector<std::pair<const ClusterModel*,std::vector<std::size_t>>>& terms, double gap) {
-    ClusterModel result(std::move(spaces),{},gap);
-    std::set<int> changes;
-    for (const auto& [source,map] : terms) {
-        result.conserves_particles_ &= source->conserves_particles_;
-        result.fermionic_ |= source->fermionic_;
-        result.operator_grading_valid_ &= source->operator_grading_valid_;
-        if (source->fermionic_) for (const auto& space : result.spaces_) if (space.parity.empty())
-            throw std::invalid_argument("fermionic terms require parity on all sites");
-        for (const auto& term : source->terms_) {
-            auto bound=term; // transition tables are immutable and shared by interaction type
-            for (auto& site : bound.sites) site=map.at(site);
-            if (bound.fermionic) bound.inversions=detail::gather_inversions(result.sites(),bound.sites);
-            result.terms_.push_back(std::move(bound));
-        }
-        changes.insert(source->changes_.begin(),source->changes_.end());
+ClusterModel ClusterModel::reordered(const std::vector<std::size_t>& map) const {
+    if (map.size()!=sites()) throw std::invalid_argument("site permutation size");
+    std::vector<LocalSpace> spaces(sites()); std::vector<bool> seen(sites());
+    for (std::size_t s=0;s<sites();++s) {
+        if (map[s]>=sites() || seen[map[s]]) throw std::invalid_argument("site map must be a permutation");
+        seen[map[s]]=true; spaces[map[s]]=spaces_[s];
     }
-    result.changes_.assign(changes.begin(),changes.end());
+    ClusterModel result(std::move(spaces),{},gap_);
+    result.terms_=terms_;
+    for (auto& term : result.terms_) {
+        for (auto& s : term.sites) s=map[s];
+        if (term.fermionic) term.inversions=detail::gather_inversions(sites(),term.sites);
+    }
+    result.changes_=changes_; result.fermionic_=fermionic_;
+    result.conserves_particles_=conserves_particles_; result.operator_grading_valid_=operator_grading_valid_;
     return result;
 }
 double ClusterModel::vacuum_energy() const noexcept {
@@ -183,13 +179,15 @@ void ClusterModel::require_operator_grading() const {
 SparseState ClusterModel::apply(int change, const SparseState& input) const {
     return apply_scaled(change,input,1.0);
 }
-SparseState ClusterModel::apply_scaled(int change, const SparseState& input, double divisor) const {
+SparseState ClusterModel::apply_scaled(int change, const SparseState& input, double divisor, std::size_t channel) const {
     SparseState result;
     for (const auto& [state, amplitude] : input) {
         if (state >= dimension_ || !std::isfinite(amplitude.real()) || !std::isfinite(amplitude.imag()))
             throw std::invalid_argument("invalid sparse input state");
         if (amplitude == Complex{}) continue;
-        for (const auto& term : terms_) {
+        for (std::size_t t=0;t<terms_.size();++t) {
+            if (channel!=static_cast<std::size_t>(-1) && t!=channel) continue;
+            const auto& term=terms_[t];
             const auto block = term.by_change->find(change);
             if (block == term.by_change->end()) continue;
             State column = 0, removed = 0;

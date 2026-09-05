@@ -163,20 +163,16 @@ void add_embedded_operator(OperatorBlock& parent, const OperatorBlock& child,
     c.require_child(child);
     EmbeddingPlan(p,c,map).add(parent,child,scale);
 }
-LinkedOperator linked_zero_charge(const ClusterCatalog& catalog, const EffectiveOperator& effective) {
+LinkedOperator linked_zero_charge(const WhiteGraphExpansion& catalog, const EffectiveOperator& effective) {
     if (catalog.max_edges()<effective.order()) throw std::invalid_argument("catalog must cover operator order");
     LinkedOperator result{catalog.lattice(),effective.order(),{}};
-    std::vector<EmbeddingBasis> bases;
-    for (const auto& entry : catalog.entries()) {
+    for (const auto& entry : catalog.embeddings()) {
         if (entry.edges.size()>effective.order()) break;
-        const auto model=catalog.model(entry.edges);
-        auto block=zero_charge_operator(model,effective);
+        const auto& model=catalog.structural_model(entry);
+        model.require_operator_grading();
+        OperatorBlock block{model.spaces(),zero_charge_basis(model),{}};
+        block.coefficients=catalog.block(entry,effective,block.basis,true);
         block.coefficients[0].setZero(); // only bare reference constants at Q=0
-        EmbeddingBasis parent(block);
-        for (const auto& sub : entry.subclusters)
-            EmbeddingPlan(parent,bases.at(sub.index),sub.vertex_map)
-                .add(block,result.weights.at(sub.index).block,-1);
-        bases.push_back(std::move(parent));
         result.weights.push_back({entry.edges,entry.sites,std::move(block)});
     }
     return result;

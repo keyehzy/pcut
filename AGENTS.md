@@ -16,7 +16,12 @@ The original research sources and their provenance live in references/.
 - Subtract the vacuum contribution before linking one-particle matrix elements.
   Raw fixed-particle Hamiltonian blocks are not cluster additive.
 - Count every embedded connected subcluster with its multiplicity. Preserve
-  interaction type and ordered local-operator legs. White graphs are out of scope.
+  operator channels, statistics, site species and ordered local-operator legs.
+  Use canonical white graphs with explicit vertex/edge/channel maps; numerical
+  couplings enter only at embedding. Preserve duplicate interaction templates.
+- Cache immutable symbolic graph evaluations by the complete physical/operator
+  context and exact coefficient program. Never identify graphs by geometry or
+  numerical coupling values, and never substitute a hash for an exact identity.
 - Never use a finite-size approximation as an infinite-lattice linked result.
 
 ## Engineering

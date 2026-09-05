@@ -58,7 +58,7 @@ const EffectiveOperator& fourth() {
     return effective;
 }
 const LinkedOperator& square_linked() {
-    static const auto linked=linked_zero_charge(ClusterCatalog(models::hubbard_square(),4),fourth());
+    static const auto linked=linked_zero_charge(WhiteGraphExpansion(models::hubbard_square(),4),fourth());
     return linked;
 }
 std::vector<State> spin_basis(unsigned sites) {
@@ -104,7 +104,7 @@ TEST_CASE("Degenerate charge-zero spaces and strict vacuum drivers", "[hubbard][
     REQUIRE_THROWS_AS(fourth().vacuum(model),std::invalid_argument);
     REQUIRE_THROWS_AS(one_particle_basis(model),std::invalid_argument);
     REQUIRE_THROWS_AS(irreducible_sectors(model,fourth(),0),std::invalid_argument);
-    const ClusterCatalog catalog(models::hubbard_chain(),4);
+    const WhiteGraphExpansion catalog(models::hubbard_chain(),4);
     REQUIRE_THROWS_AS(linked_expand(catalog,fourth()),std::invalid_argument);
     REQUIRE_THROWS_AS(linked_expand_sectors(catalog,fourth(),0),std::invalid_argument);
     auto space=models::hubbard_site(); space.parity[1]=0;
@@ -122,7 +122,7 @@ TEST_CASE("Degenerate charge-zero spaces and strict vacuum drivers", "[hubbard][
     const ClusterModel ungraded(std::vector<LocalSpace>(2,models::hubbard_site()),
                                 {{{0,1},models::hubbard_hopping(),false}});
     REQUIRE_THROWS_AS(zero_charge_operator(ungraded,fourth()),std::invalid_argument);
-    REQUIRE_THROWS_AS(linked_zero_charge(ClusterCatalog(models::hubbard_chain(),3),fourth()),std::invalid_argument);
+    REQUIRE_THROWS_AS(linked_zero_charge(WhiteGraphExpansion(models::hubbard_chain(),3),fourth()),std::invalid_argument);
 }
 
 TEST_CASE("Fermionic hopping matches global Fock matrices for nonadjacent and reversed legs", "[hubbard][fermion]") {
@@ -259,9 +259,9 @@ TEST_CASE("Fourth order matches primary canonical formulas in the sign-generator
 
 TEST_CASE("Operator linking reconstructs connected and disconnected systems with arbitrary Fock ordering", "[hubbard][linked]") {
     const auto lattice=models::hubbard_chain();
-    const ClusterCatalog catalog(lattice,4);
+    const WhiteGraphExpansion catalog(lattice,4);
     const auto linked=linked_zero_charge(catalog,fourth());
-    REQUIRE(catalog.entries()[1].subclusters.size()==2);
+    REQUIRE(catalog.embeddings()[1].subclusters.size()==2);
     for (const Cluster& edges : {Cluster{{0,{0}},{0,{1}},{0,{2}}}, Cluster{{0,{0}},{0,{2}}}}) {
         const auto model=cluster_model(lattice,edges);
         const auto sites=vertices(lattice,edges);
@@ -356,30 +356,32 @@ TEST_CASE("Half and quarter finite-system spectra converge to independent Hubbar
 TEST_CASE("First-order Hubbard linking ignores larger catalog animals", "[hubbard]") {
     const auto lattice=pcut::models::hubbard_chain();
     const pcut::EffectiveOperator first(pcut::Coefficients(pcut::charge_changes(lattice),1));
-    const auto small=pcut::linked_zero_charge(pcut::ClusterCatalog(lattice,1),first);
-    const auto large=pcut::linked_zero_charge(pcut::ClusterCatalog(lattice,2),first);
+    const auto small=pcut::linked_zero_charge(pcut::WhiteGraphExpansion(lattice,1),first);
+    const auto large=pcut::linked_zero_charge(pcut::WhiteGraphExpansion(lattice,2),first);
     REQUIRE(small.weights.size()==1);
     REQUIRE(large.weights.size()==1);
     for (unsigned n=0;n<=1;++n) REQUIRE(large.weights[0].block.coefficients[n]==small.weights[0].block.coefficients[n]);
     const pcut::EffectiveOperator zero(pcut::Coefficients(pcut::charge_changes(lattice),0));
-    REQUIRE(pcut::linked_zero_charge(pcut::ClusterCatalog(lattice,2),zero).weights.empty());
+    REQUIRE(pcut::linked_zero_charge(pcut::WhiteGraphExpansion(lattice,2),zero).weights.empty());
 }
-TEST_CASE("Shared compiled Hubbard transitions preserve spectator signs", "[hubbard][sweep]") {
+TEST_CASE("Symbolic Hubbard bindings preserve reversed legs and coupling sweeps", "[hubbard][sweep]") {
     auto lattice=pcut::models::hubbard_chain();
     lattice.interactions[0].legs[1].cell={2};
     std::reverse(lattice.interactions[0].legs.begin(),lattice.interactions[0].legs.end());
-    const pcut::ClusterCatalog initial(lattice,2);
-    lattice.interactions[0].matrix*=0.7;
-    lattice.gap=1.3;
-    const pcut::ClusterCatalog rebound(lattice,initial.topology());
-    // Noncontiguous bond with a spectator inserted by the other edge.
-    const pcut::Cluster edges{{0,{0}},{0,{1}}};
-    REQUIRE(rebound.model(edges).dense_hamiltonian(0.2).isApprox(
-        pcut::cluster_model(lattice,edges).dense_hamiltonian(0.2),1e-13));
-    auto model=rebound.model({{0,{0}},{0,{1}}});
-    const auto expected=pcut::zero_charge_operator(pcut::cluster_model(lattice,{{0,{0}},{0,{1}}}),fourth());
-    const auto actual=pcut::zero_charge_operator(model,fourth());
-    for (unsigned n=0;n<=4;++n) near(actual.coefficients[n],expected.coefficients[n]);
+    const pcut::EffectiveOperator second(pcut::Coefficients(pcut::charge_changes(lattice),2));
+    const pcut::WhiteGraphExpansion initial(lattice,2);
+    (void)pcut::linked_zero_charge(initial,second);
+    const auto count=initial.cache()->evaluations();
+    lattice.interactions[0].channels[0].coupling*=0.7;
+    const auto rebound=initial.bind(lattice.couplings());
+    for (const auto& entry : rebound.embeddings()) {
+        const auto model=pcut::cluster_model(lattice,entry.edges);
+        const auto expected=pcut::zero_charge_operator(model,second);
+        const auto actual=rebound.block(entry,second,expected.basis);
+        for (unsigned n=0;n<=2;++n) near(actual[n],expected.coefficients[n]);
+    }
+    // Full raw blocks and edge-support projections have distinct cache contexts.
+    REQUIRE(initial.cache()->evaluations()==2*count);
 }
 
 TEST_CASE("Charge-zero basis enumeration retains the complete degenerate manifold", "[hubbard]") {

@@ -1,19 +1,18 @@
 #pragma once
 #include <pcut/effective.hpp>
-#include <pcut/lattice.hpp>
+#include <pcut/white_graph.hpp>
 #include <functional>
 #include <map>
 
 namespace pcut {
-using ClusterEvaluator = std::function<Series(const ClusterModel&)>;
 struct ScalarExpansion {
     Series per_cell;
     std::vector<Series> weights;
 };
 // For any user-supplied cluster-additive scalar. Evaluator returns perturbative
-// corrections (order zero must be zero); caller supplies the on-site reference.
-[[nodiscard]] ScalarExpansion linked_scalar(const ClusterCatalog& catalog, unsigned order,
-                                             const ClusterEvaluator& evaluate_cluster,
+// symbolic corrections (order zero is empty); caller supplies the on-site reference.
+[[nodiscard]] ScalarExpansion linked_scalar(const WhiteGraphExpansion& catalog, unsigned order,
+                                             const ScalarEvaluator& evaluator,
                                              Complex reference_per_cell = 0);
 struct Flavor {
     std::size_t basis;
@@ -41,7 +40,7 @@ struct LinkedResult {
     unsigned dimension = 0;
 };
 [[nodiscard]] std::vector<int> charge_changes(const PeriodicLattice& lattice);
-[[nodiscard]] LinkedResult linked_expand(const ClusterCatalog& catalog,
+[[nodiscard]] LinkedResult linked_expand(const WhiteGraphExpansion& catalog,
                                          const EffectiveOperator& effective,
                                          LinkedOptions options = {});
 }

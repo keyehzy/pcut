@@ -17,6 +17,12 @@ Run `ctest --preset release` and `ctest --preset sanitize`. The suite includes:
 - Connected square-lattice bond-animal counts 2, 6, 22, 88 through four edges,
   including the plaquette; chain subinterval multiplicities; scalar cancellation;
   on-site interactions; and multiple cell sites with complex directed hopping.
+- Independent low-order colored edge-animal enumeration checks white-graph
+  embedding sets and linked vacuum coefficients with unequal/zero couplings.
+  Arbitrary vertex permutations, star automorphisms, straight/bent paths,
+  nonisomorphic graphs, channel reordering, ordered hyperedges, parallel templates,
+  multiple species, monomial/subcluster maps, and graded Hubbard blocks are checked.
+  Cache counters verify reuse and invalidation without timing assertions.
 - The transverse-field Ising chain with `H=sum n-lambda sum X_i X_(i+1)`.
   Its exact dispersion is `sqrt(1+4 lambda^2-4 lambda cos k)`. Energy and
   dispersion agree through fourth order at multiple momenta.
@@ -35,6 +41,16 @@ from Homebrew. Both Release and address/undefined-behavior sanitizer configurati
 pass. A separate CMake consumer successfully builds and runs against the installed
 `pcut::pcut` package. Linux Release and sanitizer checks are configured in GitHub
 Actions; they have not been run remotely as part of this local implementation.
+
+## Performance comparison
+
+Seven alternating matched comparisons with `a22f963` show complete coupling
+sweeps faster by 8.0× (square Ising), 4.4× (four-color Ising), 4.9× (Hubbard),
+and 19.5× (dimer). Hubbard and dimer also have clear cold-run improvements;
+Ising cold ranges overlap and peak-memory medians increased. See the
+[optimization report](performance.md) for timings, variability, memory and cache
+counts. The [earlier review](performance-review.md) records the initial redesign's
+regressions.
 
 ## Dimer-chain conventions
 
@@ -102,12 +118,15 @@ python3 scripts/verify_references.py
 
 The benchmark compares the vacuum series to the original expression through
 order eight and records coefficients, absolute errors, and wall-clock times.
-The checked local result is stored in [benchmark.json](benchmark.json). At
-alpha=0.17, eighth-order coefficient errors were below `2e-16`; the vacuum run
-took about 2.1 seconds. Sixth-order vacuum plus dispersion runs took below one
-second in the same session. These are measurements on this machine, not portable
-performance guarantees; timings include executable startup and may include
-contention from concurrent compilation.
+The current white-graph result is stored in [benchmark.json](benchmark.json).
+All four runs passed; the largest vacuum coefficient error was below `1e-16`,
+and the eighth-order run at alpha=0.17 had error below `1.4e-17`. The report
+records wall-clock times from serial runs after sanitizer checks finished;
+these are measurements, not portable performance guarantees. Symbolic monomial
+growth can make high-order multi-channel calculations more costly even when
+graph isomorphism reduces the number of evaluations. The square-lattice sweep
+example demonstrates 10 evaluations for 30 colored embeddings through order
+three, with zero new graph evaluations on later sweeps, independent of timing.
 
 These checks establish the finite-order coefficients and embedding conventions.
 They do not establish convergence at lambda=1, behavior across a phase transition,

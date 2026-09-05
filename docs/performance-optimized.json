@@ -1,0 +1,275 @@
+{
+  "baseline_commit": "a22f963926d0aef5983023fd534aeb8cae3163f4",
+  "current_source_sha256": "3d2d2fd330e53c1dfbcc4756d14570b6accecdbbd5d5d91b2845ec277f06726e",
+  "platform": "macOS-15.7.7-arm64-arm-64bit-Mach-O",
+  "build": {
+    "CMAKE_CXX_COMPILER": "/usr/bin/c++",
+    "CMAKE_CXX_FLAGS": "",
+    "CMAKE_CXX_FLAGS_RELEASE": "-O3 -DNDEBUG",
+    "CMAKE_OSX_ARCHITECTURES": "",
+    "CMAKE_OSX_DEPLOYMENT_TARGET": "",
+    "Eigen3_DIR": "/Users/msousa/Projects/exterior/build/_deps/eigen-build",
+    "Boost_DIR": "/opt/homebrew/lib/cmake/Boost-1.90.0"
+  },
+  "compiler": "Apple clang version 17.0.0 (clang-1700.3.19.1)\nTarget: arm64-apple-darwin24.6.0\nThread model: posix\nInstalledDir: /Library/Developer/CommandLineTools/usr/bin\n",
+  "method": "Serial alternating independent processes. Both reuse programs and immutable topology. Cold includes initial model, coefficient program, topology, binding, linking and summaries. Sweep includes every point and output formatting. No concurrent pcut workloads.",
+  "repeats": 7,
+  "cases": [
+    {
+      "model": "square",
+      "order": 4,
+      "points": 21,
+      "previous": {
+        "cold_seconds": {
+          "median": 0.004654459,
+          "minimum": 0.004537875,
+          "maximum": 0.011643541,
+          "mad": 8.61249999999994e-05
+        },
+        "warm_seconds": {
+          "median": 0.003008271,
+          "minimum": 0.0029755829999999995,
+          "maximum": 0.003601709,
+          "mad": 1.8228999999999815e-05
+        },
+        "sweep_seconds": {
+          "median": 0.065176209,
+          "minimum": 0.064341334,
+          "maximum": 0.095377625,
+          "mad": 0.0007144990000000073
+        },
+        "peak_mib": {
+          "median": 2.421875,
+          "minimum": 2.015625,
+          "maximum": 4.546875,
+          "mad": 0.40625
+        },
+        "first_evaluations": 118,
+        "later_evaluations": 2360
+      },
+      "current": {
+        "cold_seconds": {
+          "median": 0.004433375,
+          "minimum": 0.00436225,
+          "maximum": 0.011347958,
+          "mad": 3.670799999999988e-05
+        },
+        "warm_seconds": {
+          "median": 0.000177395,
+          "minimum": 0.000175,
+          "maximum": 0.0004405835,
+          "mad": 2.3950000000000067e-06
+        },
+        "sweep_seconds": {
+          "median": 0.008141291,
+          "minimum": 0.008050041,
+          "maximum": 0.02061525,
+          "mad": 9.124999999999932e-05
+        },
+        "peak_mib": {
+          "median": 3.28125,
+          "minimum": 3.28125,
+          "maximum": 3.421875,
+          "mad": 0.0
+        },
+        "first_evaluations": 30,
+        "later_evaluations": 0
+      },
+      "scaled_output_error": 2.731148640577885e-14,
+      "sweep_speedup": 8.005635592684255,
+      "cold_speedup": 1.0498681027433951
+    },
+    {
+      "model": "four_color",
+      "order": 3,
+      "points": 21,
+      "previous": {
+        "cold_seconds": {
+          "median": 0.003459459,
+          "minimum": 0.003383792,
+          "maximum": 0.00351475,
+          "mad": 1.3208999999999704e-05
+        },
+        "warm_seconds": {
+          "median": 0.0019567079999999997,
+          "minimum": 0.001918854,
+          "maximum": 0.001978667,
+          "mad": 2.1959000000000214e-05
+        },
+        "sweep_seconds": {
+          "median": 0.042937416,
+          "minimum": 0.042018958,
+          "maximum": 0.043526584,
+          "mad": 0.0005624159999999961
+        },
+        "peak_mib": {
+          "median": 2.359375,
+          "minimum": 2.359375,
+          "maximum": 3.09375,
+          "mad": 0.0
+        },
+        "first_evaluations": 276,
+        "later_evaluations": 5520
+      },
+      "current": {
+        "cold_seconds": {
+          "median": 0.003304083,
+          "minimum": 0.003242,
+          "maximum": 0.003539917,
+          "mad": 3.441600000000022e-05
+        },
+        "warm_seconds": {
+          "median": 0.000307458,
+          "minimum": 0.0003049585,
+          "maximum": 0.0003101455,
+          "mad": 1.4584999999999793e-06
+        },
+        "sweep_seconds": {
+          "median": 0.009660125,
+          "minimum": 0.009563166,
+          "maximum": 0.010011917,
+          "mad": 6.608299999999977e-05
+        },
+        "peak_mib": {
+          "median": 3.140625,
+          "minimum": 3.140625,
+          "maximum": 3.40625,
+          "mad": 0.0
+        },
+        "first_evaluations": 13,
+        "later_evaluations": 0
+      },
+      "scaled_output_error": 1.1213252548714081e-14,
+      "sweep_speedup": 4.444809565093619,
+      "cold_speedup": 1.047025453053086
+    },
+    {
+      "model": "hubbard",
+      "order": 4,
+      "points": 6,
+      "previous": {
+        "cold_seconds": {
+          "median": 0.325816083,
+          "minimum": 0.321213708,
+          "maximum": 0.341115083,
+          "mad": 0.004602374999999992
+        },
+        "warm_seconds": {
+          "median": 0.32519424999999996,
+          "minimum": 0.321059042,
+          "maximum": 0.339410375,
+          "mad": 0.004135207999999946
+        },
+        "sweep_seconds": {
+          "median": 1.963909375,
+          "minimum": 1.923373,
+          "maximum": 2.023850625,
+          "mad": 0.028950832999999898
+        },
+        "peak_mib": {
+          "median": 741.984375,
+          "minimum": 681.09375,
+          "maximum": 977.234375,
+          "mad": 25.734375
+        },
+        "first_evaluations": 118,
+        "later_evaluations": 590
+      },
+      "current": {
+        "cold_seconds": {
+          "median": 0.097005084,
+          "minimum": 0.09536875,
+          "maximum": 0.099745708,
+          "mad": 0.0011628329999999881
+        },
+        "warm_seconds": {
+          "median": 0.058888709,
+          "minimum": 0.053192958,
+          "maximum": 0.064083875,
+          "mad": 0.004629666999999997
+        },
+        "sweep_seconds": {
+          "median": 0.398108916,
+          "minimum": 0.3646285,
+          "maximum": 0.434110792,
+          "mad": 0.022924665999999982
+        },
+        "peak_mib": {
+          "median": 812.640625,
+          "minimum": 526.359375,
+          "maximum": 898.0,
+          "mad": 85.359375
+        },
+        "first_evaluations": 30,
+        "later_evaluations": 0
+      },
+      "scaled_output_error": 3.875287884259101e-13,
+      "sweep_speedup": 4.933095683292861,
+      "cold_speedup": 3.358752650531182
+    },
+    {
+      "model": "dimer",
+      "order": 6,
+      "points": 21,
+      "previous": {
+        "cold_seconds": {
+          "median": 0.242629333,
+          "minimum": 0.240610666,
+          "maximum": 0.249040292,
+          "mad": 0.0006521260000000029
+        },
+        "warm_seconds": {
+          "median": 0.2079027925,
+          "minimum": 0.207327792,
+          "maximum": 0.210972979,
+          "mad": 0.0005364379999999724
+        },
+        "sweep_seconds": {
+          "median": 4.425362625,
+          "minimum": 4.40038875,
+          "maximum": 4.458019667,
+          "mad": 0.014828249999999876
+        },
+        "peak_mib": {
+          "median": 12.046875,
+          "minimum": 11.875,
+          "maximum": 12.21875,
+          "mad": 0.15625
+        },
+        "first_evaluations": 6,
+        "later_evaluations": 120
+      },
+      "current": {
+        "cold_seconds": {
+          "median": 0.21725025,
+          "minimum": 0.21365975,
+          "maximum": 0.219719875,
+          "mad": 0.001568999999999987
+        },
+        "warm_seconds": {
+          "median": 0.00042497849999999996,
+          "minimum": 0.000422146,
+          "maximum": 0.00043958349999999996,
+          "mad": 2.3739999999999742e-06
+        },
+        "sweep_seconds": {
+          "median": 0.226763,
+          "minimum": 0.222730458,
+          "maximum": 0.229247834,
+          "mad": 0.001441250000000005
+        },
+        "peak_mib": {
+          "median": 21.171875,
+          "minimum": 16.109375,
+          "maximum": 22.96875,
+          "mad": 1.796875
+        },
+        "first_evaluations": 6,
+        "later_evaluations": 0
+      },
+      "scaled_output_error": 3.885780586188048e-16,
+      "sweep_speedup": 19.51536460974674,
+      "cold_speedup": 1.1168195801846028
+    }
+  ]
+}

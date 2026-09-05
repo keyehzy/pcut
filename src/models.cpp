@@ -46,11 +46,14 @@ Matrix dimer_bond(double alpha, double J) {
     return v;
 }
 PeriodicLattice dimerized_chain(double alpha, double J) {
-    return {1,{spin_dimer(J)},{{{{{0},0},{{1},0}},dimer_bond(alpha,J)}},J};
+    if (!std::isfinite(alpha)) throw std::invalid_argument("alpha must be finite");
+    const Matrix base=dimer_bond(0,J);
+    const Matrix frustration=dimer_bond(1,J)-base;
+    return {1,{spin_dimer(J)},{{{{{0},0},{{1},0}},{{{base,false},1},{{frustration,false},alpha}}}},J};
 }
 PeriodicLattice ising_chain(double coupling) {
     if (!std::isfinite(coupling)) throw std::invalid_argument("coupling must be finite");
     Matrix x(2,2); x << 0,1,1,0;
-    return {1,{{{0,1},0,"hardcore spin",{},{} }},{{{{{0},0},{{1},0}},-coupling*tensor(x,x)}},1.0};
+    return {1,{{{0,1},0,"hardcore spin",{},{} }},{{{{{0},0},{{1},0}},{{{-tensor(x,x),false},coupling}}}},1.0};
 }
 }

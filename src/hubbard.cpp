@@ -22,12 +22,14 @@ Matrix hubbard_hopping(double amplitude) {
     return h;
 }
 PeriodicLattice hubbard_chain(double amplitude) {
-    return {1,{hubbard_site()},{{{{{0},0},{{1},0}},hubbard_hopping(amplitude),true}},1};
+    if (!std::isfinite(amplitude)) throw std::invalid_argument("nonfinite Hubbard hopping");
+    return {1,{hubbard_site()},{{{{{0},0},{{1},0}},{{{hubbard_hopping(1),true},amplitude}}}},1};
 }
 PeriodicLattice hubbard_square(double amplitude) {
+    if (!std::isfinite(amplitude)) throw std::invalid_argument("nonfinite Hubbard hopping");
     PeriodicLattice lattice{2,{hubbard_site()},{},1};
     for (const Coordinate& offset : {Coordinate{1,0},Coordinate{0,1}})
-        lattice.interactions.push_back({{{{0,0},0},{offset,0}},hubbard_hopping(amplitude),true});
+        lattice.interactions.push_back({{{{0,0},0},{offset,0}},{{{hubbard_hopping(1),true},amplitude}}});
     return lattice;
 }
 }

@@ -41,7 +41,7 @@ int main(int argc,char** argv) {
         const auto lattice=geometry=="chain" ? pcut::models::hubbard_chain() : pcut::models::hubbard_square();
         const pcut::Coefficients coefficients({-1,0,1},order);
         const pcut::EffectiveOperator effective(coefficients);
-        const pcut::ClusterCatalog catalog(lattice,order);
+        const pcut::WhiteGraphExpansion catalog(lattice,order);
         const auto linked=pcut::linked_zero_charge(catalog,effective);
         const pcut::Cluster edges=geometry=="chain" ? pcut::Cluster{{0,{0}},{0,{1}},{0,{2}}} :
             pcut::Cluster{{0,{0,0}},{1,{1,0}},{0,{0,1}},{1,{0,0}}};

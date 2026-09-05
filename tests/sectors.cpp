@@ -4,7 +4,7 @@
 
 TEST_CASE("General sector linking agrees with the specialized vacuum and hopping driver", "[sectors]") {
     const auto lattice=pcut::models::dimerized_chain(0.17);
-    const pcut::ClusterCatalog catalog(lattice,4);
+    const pcut::WhiteGraphExpansion catalog(lattice,4);
     const pcut::EffectiveOperator effective(pcut::Coefficients(pcut::charge_changes(lattice),4));
     const auto specialized=pcut::linked_expand(catalog,effective);
     const auto general=pcut::linked_expand_sectors(catalog,effective,1);
@@ -20,8 +20,8 @@ TEST_CASE("General sector linking agrees with the specialized vacuum and hopping
 }
 TEST_CASE("Three-body kernels retain the interaction after spectator subtraction", "[sectors][hypergraph]") {
     pcut::Matrix v=pcut::Matrix::Zero(8,8); v(7,7)=2.3;
-    pcut::PeriodicLattice lattice{1,{{{0,1},-0.2,"spin"}},{{{{{0},0},{{1},0},{{2},0}},v}},1};
-    const pcut::ClusterCatalog catalog(lattice,3);
+    pcut::PeriodicLattice lattice{1,{{{0,1},-0.2,"spin"}},{{{{{0},0},{{1},0},{{2},0}},{{{v,false},1}}}},1};
+    const pcut::WhiteGraphExpansion catalog(lattice,3);
     const pcut::EffectiveOperator effective(pcut::Coefficients({0},3));
     const auto result=pcut::linked_expand_sectors(catalog,effective,3);
     unsigned triples=0;
@@ -61,7 +61,7 @@ TEST_CASE("Unequal local charges permit a one-to-two excitation conversion kerne
 TEST_CASE("Ising two-particle kernels recover the Jordan-Wigner correlated hopping", "[sectors][analytic]") {
     const auto lattice=pcut::models::ising_chain();
     const pcut::EffectiveOperator effective(pcut::Coefficients(pcut::charge_changes(lattice),4));
-    const auto result=pcut::linked_expand_sectors(pcut::ClusterCatalog(lattice,4),effective,2);
+    const auto result=pcut::linked_expand_sectors(pcut::WhiteGraphExpansion(lattice,4),effective,2);
     const pcut::Excitation left{{{0},0},1}, middle{{{1},0},1}, right{{{2},0},1};
     const auto& correlated=result.kernels.at({{middle,right},{left,middle}});
     // Free-fermion t_2=-lambda^2/2 times the string (1-2 n_middle).
@@ -73,8 +73,8 @@ TEST_CASE("Ising two-particle kernels recover the Jordan-Wigner correlated hoppi
 TEST_CASE("Sector linking skips excess catalog orders", "[sectors]") {
     const auto lattice=pcut::models::ising_chain();
     const pcut::EffectiveOperator first(pcut::Coefficients(pcut::charge_changes(lattice),1));
-    const auto expected=pcut::linked_expand_sectors(pcut::ClusterCatalog(lattice,1),first,1);
-    const auto actual=pcut::linked_expand_sectors(pcut::ClusterCatalog(lattice,3),first,1);
+    const auto expected=pcut::linked_expand_sectors(pcut::WhiteGraphExpansion(lattice,1),first,1);
+    const auto actual=pcut::linked_expand_sectors(pcut::WhiteGraphExpansion(lattice,3),first,1);
     REQUIRE(actual.energy_per_cell==expected.energy_per_cell);
     REQUIRE(actual.kernels==expected.kernels);
 }

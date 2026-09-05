@@ -22,16 +22,29 @@ Coefficients are generated for the actual sorted change alphabet, which need not
 be consecutive or bounded by two. The implementation generates coefficients
 rather than fitting spectra or numerically stopping a flow at a finite time.
 
-A reversed-word trie shares rightmost operator applications. Each node propagates
-only the currently nonzero product states through compiled local transition
-lists. Every intermediate charge sector is retained. Each local transition is
-divided by `Delta` before multiplication, so the trie propagates dimensionless
-`V/Delta` products. After summing each order, multiply once by `Delta` to restore
-physical energy units. This avoids unit-dependent overflow/underflow in powers
-of physical energies; dimensionless products must still fit double precision.
-Only exact zero amplitudes are removed. Operator tables and trie programs are
-immutable after construction; simultaneous evaluations use independent scratch
-storage. The default drivers execute serially.
+A reversed-word trie shares rightmost operator applications in the numerical
+finite-cluster evaluator. The symbolic evaluator further factors its continuation
+program: at each depth, a sparse exact-rational row represents a terminal
+coefficient and its `(next charge change, next-layer basis)` continuations.
+Gaussian elimination produces a basis for that row space. Propagating into these
+basis vectors combines linearly dependent continuations before further local
+applications. This is an exact algebraic compilation of the original coefficient
+table, not a fit; cache identity retains the complete original rational program.
+
+Only currently nonzero product states propagate through compiled local transition
+lists. Every reachable intermediate charge sector is retained; only the final
+external basis restricts output. Each local transition is divided by `Delta`
+before multiplication, and the final sum restores one factor of `Delta`.
+This avoids unit-dependent overflow/underflow in powers of physical energies;
+dimensionless model products must still fit double precision. Rational program
+weights are converted when evaluating model amplitudes. Exactly real operators
+use real scratch arithmetic; operators with any nonzero imaginary entry use
+complex arithmetic. Only exact zero amplitudes are removed.
+
+Operator tables and coefficient programs are immutable. Simultaneous evaluations
+use independent scratch storage. Reached transitions are memoized within each
+external input column, so temporary storage is released/reused between columns.
+The default drivers execute serially.
 
 ## Local Hilbert spaces
 
@@ -56,44 +69,134 @@ Fock convention is in [hubbard.md](hubbard.md).
 `ClusterModel::dense_hamiltonian` is a dense validation helper;
 Eigen diagonalization is used only in tests and for the small Bloch matrices.
 
-## Connected colored embedded clusters
+## Canonical abstract white graphs and infinite embeddings
 
-A periodic interaction template specifies its ordered sites and cell offsets.
-An edge instance is `(template type, integer translation)`. Different templates
-remain distinct colors, even on the same geometric support. Their matrices are
-summed in the Hamiltonian; supplying a redundant template intentionally adds the
-interaction again. Multiple physical couplings on one support can instead be
-combined into one matrix, as in the dimer-chain model.
+An interaction template contains ordered sites and a list of
+`CoupledChannel{OperatorChannel{matrix, fermionic}, coupling}` values. Its
+Hamiltonian is `lambda * sum_channel coupling * matrix`. Ratios are real and
+finite, including zero and negative values; phases belong in the Hermitian
+channel matrices. Distinct physical templates remain distinct edge occurrences,
+even when their support and channels coincide. Duplicate templates intentionally
+add the interaction again. Multiple channels on one template share an edge but
+have separate formal variables.
 
-The catalog grows connected edge sets by adjoining every interaction incident on
-an existing site. A cluster is normalized by subtracting its lexicographically
-smallest edge origin. Exact ordered edge sets are deduplicated under translations.
-Rotations and reflections are separate classes, so each stored cluster has one
-embedding per unit cell. This works for colored hyperedges and arbitrary unit
-cells without automorphism factors. It trades additional cluster solves for a
-simple, verifiable embedding convention. Topological isomorphism caching is a
-future optimization independent of white graphs.
+`WhiteGraphExpansion` grows translation classes of connected injective physical
+edge sets on the infinite lattice and uses them as witnesses for canonical
+abstract white graphs. Adding each incident interaction template grows every
+connected set: every connected hyperedge set with more than one edge has a
+connected single-edge deletion. Templates retain their distinct occurrence IDs,
+including duplicates; on-site, parallel and higher-arity edges are supported.
+Canonicalization removes coordinates and numerical couplings before evaluation.
+Witness growth avoids generating abstract candidates that cannot embed, and
+collects every physical embedding while sharing its canonical graph evaluation.
+There is no finite periodic box or finite-size approximation.
 
-Every proper connected embedded edge subset is generated by deletion and stored
-with its map into the parent vertices. Translationally equivalent subsets at
-different positions are kept separately. A geometry-only `ClusterTopology` owns
-these entries and ordered interaction legs. A `ClusterCatalog` binds a lattice to a shared topology, validates and
-compiles each numerical interaction type once, and shares immutable transition
-tables among cluster models. New couplings or local spectra can reuse the
-topology when dimension, unit-cell site count and ordered colored legs match.
+Canonicalization refines ordered incidence colors, then searches every vertex
+permutation within the refined cells. The minimum exact structural serialization
+is the key; refinement alone is never used as an isomorphism test. This handles
+arbitrary vertex permutations, not only spatial rotations and reflections.
+Vertex identity includes species (`LocalSpace::name`), ordered charge levels,
+reference energy, particle numbers and parity. Edge identity includes ordered
+legs and exact channel matrices/statistics, with channels sorted structurally.
+Equal channels and parallel edges retain their separate occurrences. Returned
+`GraphMap` objects explicitly map canonical vertices, edges and flattened
+edge/channel variables to the input graph. The reported automorphism count is
+for vertices; parallel-edge/channel permutations are handled by occurrence
+mapping and embedding deduplication, without factorial normalization.
 
-Clusters are ordered by edge count, so all subcluster weights exist before the parent is processed. Because an order-n
-operator product uses at most n distinct interactions, including all connected
-clusters through n edges suffices at order n. All linked drivers stop at this
-edge count even if given a larger catalog; returned weight arrays contain only
-the processed prefix. This is an infinite-lattice series, not a fit or extrapolation from finite periodic chains.
+Each completed physical edge set is normalized by its minimum edge origin.
+Deduplicating these exact sets removes translation and automorphism overcounting.
+Each stored `GraphEmbedding` therefore occurs once per unit cell. Its sites are
+sorted physical lattice sites; canonicalization supplies explicit vertex, edge
+and flattened channel maps retaining ordered legs and physical displacements.
+Exact species/operator signatures are interned during construction, and compact
+local IDs accelerate refinement and repeated canonicalization. Persistent graph
+identity still contains full structural serialization, never just those IDs or
+a hash. Operator validation occurs at the public boundary; generated candidates
+reuse already validated structure.
+
+An expansion owns a shared immutable plan containing graphs, embeddings,
+subcluster maps and compiled canonical/physical models. `bind(ratios)` shares
+that plan and changes only numerical coupling storage. Physical models share
+immutable transition tables through validated site permutations, including
+updated fermionic gathering inversions. Requested external bases and exact
+coefficient programs select synchronized reusable sparse readout plans.
+
+Every proper connected edge subset is generated by recursive deletion, retaining
+separate subsets even when they canonicalize to the same child. Each
+`GraphSubcluster` carries canonical child-to-parent vertex/edge/channel maps.
+These maps also construct the physical subcluster maps used in linking. Entries
+are ordered by edge count. An order-n operator product uses at most n distinct
+edges, so graphs through n edges suffice, and drivers skip excess catalog orders.
+
+## Symbolic evaluation and cache validity
+
+`Monomial` is an immutable sparse exponent vector. Sixteen four-bit exponent
+lanes fit inline in 64 bits; larger variable indices or powers use a shared sparse
+vector. This is lossless: variables retain `size_t` range and total degree remains
+at most 64. Cached `Polynomial` objects store sorted contiguous monomial/amplitude
+pairs. The symbolic scratch evaluator interns monomials, caches variable
+multiplications and propagates integer monomial IDs in Boost flat hash tables.
+Its interning key is a lossless packed exponent vector when representable and an
+exact sparse vector otherwise. Allocation failures propagate.
+
+Applying a channel increments its formal exponent. Formal degree equals lambda
+order. There is no interpolation, numerical pruning, fit or work/storage budget.
+Universal coefficients and program factorization use Boost exact rationals;
+model amplitudes use floating point with the energy scaling described above.
+
+`GraphCache` owns immutable `SymbolicBlock` results. The exact cache identity
+contains the actual ordered graph spaces/operators, gap, exact coefficient
+program (alphabet, order and rational terms), and requested external basis.
+Numerical couplings and lattice coordinates are excluded. Changes to local
+spaces, reference energies, statistics, matrices, order or sectors select a new
+entry automatically. External state encodings and variable assignments are
+mapped consistently; fermionic matrix elements receive both input and output
+Fock permutation signs. Requested bases are sorted in canonical coordinates
+before cache lookup. `evaluations()` counts cache misses that completed, while
+`hits()` records reuse; no timing assumptions are needed to demonstrate savings.
+Caches synchronize evaluation and lookup and keep results alive by shared
+ownership. They do not evict results; allocation failures propagate.
+
+The vacuum/one-particle and charge-zero operator drivers evaluate the exact
+**full-edge support projection**: retain only monomials containing at least one
+channel from every graph edge. For an additive operator/kernel, mapped connected
+subcluster subtraction is precisely this projection. A monomial supported on a
+proper connected edge subset is removed once by its corresponding weight;
+disconnected supports cancel by additivity of the Hamiltonian and sign generator.
+This eliminates repeated numerical mapped subtraction in these drivers.
+
+During propagation, a prefix is skipped only if its missing edge count exceeds
+the number of remaining operators. This is an algebraic support/degree test,
+independent of coupling values and amplitudes, and never a Q-sector cutoff.
+The one-particle driver still subtracts the projected vacuum contribution from
+the projected one-particle diagonal before embedding. Projection commutes with
+that linear subtraction. The general sector driver retains raw blocks and its
+explicit spectator and connected-subcluster subtraction. Custom scalar linking
+retains polynomial subcluster subtraction with explicit channel maps.
+
+Raw blocks and support projections have separate exact cache identities. Sparse
+readout plans traverse stored nonzero matrix entries, with precomputed physical
+row/column positions and both graded signs; absent entries require no sparse-map
+search. Binding substitutes numerical ratios only at this stage. Algebraically
+equivalent summation/factorization can change roundoff residues, which are kept
+unless exactly zero.
+
+A `ScalarEvaluator` owns an immutable, isomorphism-covariant callback context.
+Copies share its cache identity; create a new evaluator when captured parameters
+change. The callback receives `(WhiteGraph, gap, order)` and must return
+`SymbolicSeries(order+1)` with an empty constant polynomial and degree n monomials
+at order n. It can use `EffectiveOperator::symbolic_block(graph.model(gap), basis)`
+to obtain effective matrix elements. Cluster additivity and covariance remain
+the caller's semantic responsibility. Cache callbacks must not recursively call
+the same cache. Coupling-dependent numerical callbacks have been removed.
 
 ## Linking and particle irreducibility
 
 For an additive scalar `P`, compute `W(C)=P(C)-sum_(S proper connected subset C) W(S)`.
 Each embedded subset occurs once in this sum. Summing weights over translation
 classes yields the correction per unit cell. On-site reference energies are
-embedded separately. A scalar callback must return corrections with zero at
+embedded separately. A scalar callback must return symbolic corrections with an empty polynomial at
 order zero and must actually be cluster additive; this semantic property is the
 caller's responsibility.
 
@@ -136,9 +239,9 @@ Tiny roundoff residues are retained, not silently pruned.
 ## Degenerate charge-zero operator linking
 
 `linked_zero_charge` stores complete Q=0 operator matrices on each connected
-colored edge set. It subtracts every embedded connected-subcluster weight with
-identity spectators and graded permutation signs, without vacuum or
-particle-irreducible subtraction. Private embedding plans cache basis indices,
+physical embedding of a canonical white graph. It applies the full-edge support projection, equivalent to subtracting every
+embedded connected-subcluster weight with identity spectators and graded signs,
+without vacuum or particle-irreducible subtraction. Private embedding plans cache basis indices,
 decoded states and the gathering permutation; internal loops reuse validated
 bases and avoid public validation within matrix-element traversal. Even disjoint
 subsystem Hamiltonians and their sign generators add, and their Q=0 projectors factor, so this operator is cluster
@@ -149,7 +252,8 @@ public APIs and validation.
 
 ## Explicit limitations
 
-- One formal expansion parameter, with arbitrary fixed numerical coupling ratios.
+- One formal expansion parameter, with arbitrary numerical coupling ratios
+  substituted into sparse formal graph/channel monomials.
 - Finite local Hilbert spaces and an integer equidistant H0 charge ladder.
   A unique product vacuum is required for the vacuum/particle drivers.
 - Sparse tensor dimensions must fit 64-bit state encoding; dense matrices must
@@ -161,6 +265,17 @@ public APIs and validation.
   elements have different precision contracts.
 - Large local matrices are currently supplied densely and compiled into sparse
   transitions; a matrix-free local-operator frontend is a possible extension.
-- No resummation, transformed observables, automatic statistics, white graphs,
-  graph-isomorphism reduction, or built-in distributed execution. Fermionic
+- Canonical labeling uses exhaustive search within incidence-refined cells;
+  worst-case cost is factorial. Ordered-leg symmetries of particular matrices
+  are not inferred. Graph/channel monomial growth can be exponential.
+- No resummation, transformed observables, automatic statistics, or built-in
+  distributed execution. Fermionic
   statistics are explicit metadata, not inferred from arbitrary tensor matrices.
+
+## Provenance
+
+The white-graph generalized monomials, canonical graph decomposition, and late
+coupling substitution follow Coester and Schmidt (2015), sections III–IV in
+`references/sources/1505.02975/white_graphs.tex`. Ordered hyperedges, species,
+parallel channels, graded state mappings and cache context serialization are
+implementation extensions. Downloaded research sources are unchanged.

@@ -34,7 +34,7 @@ struct LinkedOperator {
 };
 // Dedicated operator-valued linked expansion in the entire tensor Q=0 manifold.
 // Reference constants are assembled separately, not subtracted as vacuum energy.
-[[nodiscard]] LinkedOperator linked_zero_charge(const ClusterCatalog& catalog,
+[[nodiscard]] LinkedOperator linked_zero_charge(const WhiteGraphExpansion& catalog,
     const EffectiveOperator& effective);
 // Restrict the translation sum to a supplied finite set of colored edges.
 // sites specifies the Fock ordering and may contain isolated spectator sites.

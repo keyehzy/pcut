@@ -3,7 +3,9 @@
 A C++20 numerical perturbative continuous unitary transformation (pCUT) and
 linked-cluster expansion library. It generates universal coefficients exactly,
 applies local operators to sparse product states, and embeds connected cluster
-weights directly into an infinite periodic lattice. White graphs are not used.
+weights directly into an infinite periodic lattice. Canonical white graphs carry
+sparse edge/channel monomials; immutable graph evaluations are reused across
+geometries and numerical coupling sweeps.
 
 The implementation supports the standard pCUT class
 
@@ -17,12 +19,12 @@ also supports a degenerate local charge-zero manifold.
 Models supply local Hilbert spaces and complex Hermitian interaction matrices.
 Interactions may have arbitrary finite support, ordered tensor legs, different
 coupling strengths, and different site species. Periodic lattices can have
-multiple sites per cell and arbitrary spatial dimension within configured limits.
+multiple sites per cell and arbitrary spatial dimension within representation limits.
 Non-equidistant spectra require a different perturbative scheme.
 
 ## Build and run
 
-Requires a C++20 compiler, CMake 3.25+, Ninja, Eigen 3.4+, and Boost 1.74+.
+Requires a C++20 compiler, CMake 3.25+, Ninja, Eigen 3.4+, and Boost 1.81+.
 Catch2 3 is used if installed; otherwise CMake downloads the pinned, checksummed
 Catch2 3.8.1 source archive. Eigen and Boost are system dependencies.
 
@@ -65,7 +67,7 @@ const auto lattice = pcut::models::dimerized_chain(0.17);
 const unsigned order = 6;
 const pcut::Coefficients coefficients(pcut::charge_changes(lattice), order);
 const pcut::EffectiveOperator effective(coefficients);
-const pcut::ClusterCatalog clusters(lattice, order);
+const pcut::WhiteGraphExpansion clusters(lattice, order);
 const auto result = pcut::linked_expand(clusters, effective);
 
 const auto energy = pcut::evaluate(result.energy_per_cell, 0.3);
@@ -75,10 +77,18 @@ const auto bands = result.bloch({0.4}, 0.3); // Hermitian matrix, one row per fl
 `Series[n]` is the coefficient of `lambda^n`, without factorials. `Coefficients`
 uses Boost arbitrary-precision rationals; model evaluation uses complex doubles.
 Tables and effective programs can be reused across geometries and coupling sweeps
-that share a charge-change alphabet. Geometry-only `ClusterTopology` objects
-can also be shared across numerical `ClusterCatalog` bindings; each binding
-compiles transitions once per interaction type. See [the model guide](docs/models.md)
-for a coupling-sweep example.
+that share a charge-change alphabet. Pass a shared `GraphCache` to
+`WhiteGraphExpansion(lattice, order, cache)` to reuse symbolic graph blocks.
+For a coupling sweep, construct the expansion once and use
+`clusters.bind(new_lattice.couplings())`; bindings share immutable topology,
+embeddings, subcluster maps, compiled operators and sparse block readout plans.
+See [measured performance and trade-offs](docs/performance.md) for reproducible
+comparisons with `a22f963`.
+`Interaction::channels` separates fixed `OperatorChannel{matrix, fermionic}`
+operators from numerical `coupling` ratios. See [the model guide](docs/models.md)
+for a complete coupling-sweep example. Run `build/release/pcut_white_sweep`
+to see 10 graph evaluations serve 30 colored embeddings through order three,
+with zero new graph evaluations for subsequent coupling ratios.
 
 For the repulsive spinful Hubbard model, `models::hubbard_chain()` and
 `models::hubbard_square()` use `H/U = Q + (t/U) V`. The dedicated
@@ -129,9 +139,12 @@ storage or work budgets; callers choose feasible calculations and allocation
 failures propagate. Sparse tensor-state IDs are 64-bit, and dense matrix sizes
 must fit Eigen indexing and byte-size representation.
 Finite local matrices must be supplied, including any truncation of bosonic spaces
-and statistics metadata for graded fermionic terms. Couplings are numerical ratios
-multiplying one formal expansion parameter; symbolic multivariate polynomials, transformed
-observables, graph-isomorphism caching, and white graphs are not implemented.
+and statistics metadata for graded fermionic terms. Couplings are numerical ratios multiplying one formal expansion parameter. Sparse
+multivariate edge/channel polynomials are internal to graph evaluation; embedding
+substitutes the ratios and returns the single-lambda series. Transformed
+observables and resummation are not implemented. Ordered legs remain structural
+attributes even when a particular operator has additional leg-exchange symmetry;
+the engine does not infer those symmetries.
 
 ## References
 

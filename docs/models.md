@@ -16,12 +16,12 @@ v(1,2) = pcut::Complex(0,-0.2);
 
 pcut::PeriodicLattice lattice{
     1, {spin},
-    {{{{{0},0}, {{1},0}}, v}},
+    {{{{{0},0}, {{1},0}}, {{{v, false}, 1.0}}}},
     1.0
 };
 pcut::Coefficients coefficients(pcut::charge_changes(lattice), 4);
 pcut::EffectiveOperator effective(coefficients);
-pcut::ClusterCatalog clusters(lattice, 4);
+pcut::WhiteGraphExpansion clusters(lattice, 4);
 auto one_particle = pcut::linked_expand(clusters, effective);
 auto two_particle = pcut::linked_expand_sectors(clusters, effective, 2);
 ```
@@ -59,35 +59,86 @@ operators followed by its annihilation operators, summed over cell translations.
 When a site occurs in both lists, the local factor is `|a><b|`. Other occupied
 sites are spectators. `energy_per_cell` stores the vacuum term separately.
 
-A custom `linked_scalar` callback is useful for other additive scalar quantities.
-It must return `order+1` coefficients, with zero constant term; pass the reference
-per cell separately. Raw excited-sector energies and raw block traces are not
-usually cluster additive and must not be used without irreducible subtraction.
+Use separate channels for independently varying operator structures. For example,
+`{{{pair_matrix, false}, pair_ratio}, {{hop_matrix, false}, hop_ratio}}`
+represents two channels on the same ordered support. Matrices are fixed Hermitian
+operators in physical energy units; ratios are dimensionless real numbers and may
+be unequal, negative or zero. A matrix's complex phases remain inside the matrix.
+All channels multiply the same lambda. Duplicate templates and duplicate channels
+are separate occurrences whose Hamiltonian contributions add.
 
-For coupling sweeps, reuse the coefficient table, effective operator and geometry:
+For coupling sweeps, reuse the exact coefficient program and the expansion plan:
 
 ```cpp
-const auto topology = std::make_shared<pcut::ClusterTopology>(lattice, 4);
-for (double coupling : {0.2, 0.4, 0.6}) {
+const pcut::WhiteGraphExpansion plan(lattice, 4);
+for (double coupling : {0.0, 0.4, 0.6}) {
     auto bound = lattice;
-    bound.interactions[0].matrix = coupling * v;
-    const pcut::ClusterCatalog catalog(std::move(bound), topology);
-    const auto result = pcut::linked_expand(catalog, effective);
+    bound.interactions[0].channels[0].coupling = coupling;
+    const auto graphs = plan.bind(bound.couplings());
+    const auto result = pcut::linked_expand(graphs, effective);
+    // plan.cache()->evaluations() stays fixed after the first evaluation.
+    // Graphs, embeddings, compiled models and readout mappings are shared.
 }
 ```
 
-An existing catalog exposes its shared geometry with `catalog.topology()`.
-Rebinding checks spatial dimension, unit-cell site count and every ordered
-interaction leg, including interaction type. Matrices, gap, reference energies
-and local spaces belong to each numerical binding and are validated there.
-`catalog.model(edges)` shares compiled transition tables by interaction type;
-use it for repeated finite cluster evaluations too. Models retain shared tables
-safely after the catalog is destroyed. The free `cluster_model(lattice, edges)`
-remains a direct finite-model constructor and compiles the supplied terms.
-The model's actual charge alphabet must be covered by the coefficient table.
-Zero-valued couplings may reduce the actual alphabet, so using the union alphabet
-across a sweep avoids rebuilding coefficients. This is still a univariate series
-in lambda; no polynomial interpolation or symbolic dependence is implied.
+`graphs.graphs()` exposes canonical abstract graphs and all connected-subgraph
+maps. `graphs.embeddings()` exposes their infinite-lattice realizations with
+physical vertex/edge/channel maps. Geometry does not enter graph/cache identity;
+the same cache can therefore serve a different lattice. Local species are
+identified by `LocalSpace::name`; dimensions, ordered charges, reference energies,
+particle/parity metadata and fixed operator matrices must also match. Changing
+any of these, the gap, coefficient program or external basis causes a new cache
+entry. `bind` accepts one row per physical interaction and one finite real ratio per
+channel, including zeros. It cannot change operator structure or geometry;
+construct a new expansion and optionally share its `GraphCache` for those changes.
+Bindings own their ratios and leave earlier bindings unchanged. Coupling-only
+changes reuse immutable symbolic blocks. Changing channel
+list order is supported by explicit channel maps. Additional leg symmetries of
+particular matrices are not automatically inferred.
+
+The charge alphabet is the union of individual **operator channel** alphabets,
+including channels whose coupling is zero. Thus a coupling sweep can reuse the
+same coefficients without accidentally dropping a virtual process. To construct
+a finite numerical model, use `cluster_model(lattice, edges)` or `ClusterModel`
+directly. `WhiteGraphExpansion::block(embedding, effective, basis)` evaluates the
+cached symbolic block in a requested physical basis; pass an embedding reference
+from that expansion or a binding sharing its plan. Fermionic input/output
+permutations include graded signs. The optional fourth argument `true` requests
+only monomials touching every edge; it is an algebraic support projection, and
+one-particle callers must still subtract its vacuum contribution. Raw blocks and
+support projections have separate cache contexts. `structural_model(embedding)`
+provides a compiled unbound model in physical site order, with terms in canonical
+variable order, for basis and statistics inspection; use `cluster_model(graphs.lattice(), embedding.edges)` for a numerical
+Hamiltonian with bound couplings.
+
+Custom scalars use a reusable `ScalarEvaluator` with a pure callback returning
+formal corrections. This example is the additive sum of all channel strengths:
+
+```cpp
+const pcut::ScalarEvaluator sum_channels(
+    [](const pcut::WhiteGraph& graph, double gap, unsigned order) {
+        (void)gap;
+        pcut::SymbolicSeries series(order + 1);
+        if (order) for (std::size_t v = 0; v < graph.variables(); ++v)
+            series[1][pcut::Monomial{}.multiplied(v)] = 1.0;
+        return series;
+    });
+const auto total = pcut::linked_scalar(clusters, 4, sum_channels, 0.0);
+```
+
+The callback must be covariant under graph relabeling and cluster additive. At
+order n every monomial has total degree n; order zero is an empty polynomial,
+with the physical reference per cell passed separately. Captured context must
+remain immutable; construct a new evaluator when it changes. Copies share cache
+identity. To evaluate a pCUT-derived scalar, capture an `EffectiveOperator` and
+extract elements of `effective.symbolic_block(graph.model(gap), basis)` inside
+the callback. Raw excited-sector energies and raw block traces are generally not
+cluster additive. Vacuum/spectator subtraction is still required where relevant.
+
+`build/release/pcut_white_sweep` demonstrates two unequal square-lattice coupling
+colors and reports graph evaluations, embeddings and cache reuse without timing
+assertions. The dimer-chain factory similarly separates its base and frustration
+operators into two fixed channels; alpha is a coupling ratio.
 
 Calculations have no configurable storage or work budgets. Choose orders and
 external sectors that fit your available resources; allocation failures propagate.

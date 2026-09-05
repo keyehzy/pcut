@@ -46,13 +46,9 @@ Kernel normalize_kernel(Kernel kernel) {
     return kernel;
 }
 }
-IrreducibleSectors irreducible_sectors(const ClusterModel& model, const EffectiveOperator& effective,
-                                      unsigned max_charge) {
+static IrreducibleSectors subtract_spectators(const ClusterModel& model, IrreducibleSectors result) {
     model.require_product_vacuum();
     if (model.fermionic()) throw std::invalid_argument("tensor sector kernels do not support graded fermionic terms");
-    IrreducibleSectors result;
-    result.basis=sector_basis(model,max_charge);
-    result.kernels=effective.block(model,result.basis);
     std::map<State,Eigen::Index> indices;
     std::vector<std::vector<unsigned>> decoded;
     for (std::size_t i=0;i<result.basis.size();++i) {
@@ -81,13 +77,17 @@ IrreducibleSectors irreducible_sectors(const ClusterModel& model, const Effectiv
     }
     return result;
 }
-LinkedSectors linked_expand_sectors(const ClusterCatalog& catalog, const EffectiveOperator& effective,
+IrreducibleSectors irreducible_sectors(const ClusterModel& model,const EffectiveOperator& effective,unsigned max_charge) {
+    auto basis=sector_basis(model,max_charge);
+    return subtract_spectators(model,{basis,effective.block(model,basis)});
+}
+LinkedSectors linked_expand_sectors(const WhiteGraphExpansion& catalog, const EffectiveOperator& effective,
                                     unsigned max_charge) {
     if (catalog.max_edges()<effective.order()) throw std::invalid_argument("catalog does not cover perturbation order");
     const auto& lattice=catalog.lattice();
     const auto order=effective.order();
     for (const auto& space : lattice.cell) space.require_product_vacuum();
-    for (const auto& term : lattice.interactions) if (term.fermionic)
+    for (const auto& term : lattice.interactions) for (const auto& channel : term.channels) if (channel.op.fermionic)
         throw std::invalid_argument("tensor sector kernels do not support graded fermionic terms");
     LinkedSectors result{Series(order+1),{}};
     for (std::size_t b=0;b<lattice.cell.size();++b) {
@@ -101,10 +101,11 @@ LinkedSectors linked_expand_sectors(const ClusterCatalog& catalog, const Effecti
     }
     struct Weight { IrreducibleSectors sectors; std::vector<std::vector<unsigned>> local; };
     std::vector<Weight> weights;
-    for (const auto& entry : catalog.entries()) {
+    for (const auto& entry : catalog.embeddings()) {
         if (entry.edges.size()>order) break;
-        const auto model=catalog.model(entry.edges);
-        Weight weight{irreducible_sectors(model,effective,max_charge),{}};
+        const auto& model=catalog.structural_model(entry);
+        const auto basis=sector_basis(model,max_charge);
+        Weight weight{subtract_spectators(model,{basis,catalog.block(entry,effective,basis)}),{}};
         weight.sectors.kernels[0].setZero(); // embed bare on-site terms separately
         std::map<State,Eigen::Index> indices;
         for (std::size_t i=0;i<weight.sectors.basis.size();++i) {
@@ -116,7 +117,7 @@ LinkedSectors linked_expand_sectors(const ClusterCatalog& catalog, const Effecti
             std::vector<Eigen::Index> map;
             for (const auto& local : child.local) {
                 std::vector<unsigned> parent(model.sites(),0);
-                for (std::size_t s=0;s<local.size();++s) parent[sub.vertex_map[s]]=local[s];
+                for (std::size_t s=0;s<local.size();++s) parent[sub.map.vertices[s]]=local[s];
                 map.push_back(indices.at(model.encode(parent)));
             }
             detail::subtract_mapped(weight.sectors.kernels,child.sectors.kernels,map);

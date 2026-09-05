@@ -7,3 +7,4 @@
 #include <pcut/models.hpp>
 #include <pcut/sectors.hpp>
 #include <pcut/operator.hpp>
+#include <pcut/white_graph.hpp>
