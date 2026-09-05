@@ -9,6 +9,7 @@
 #include <vector>
 
 namespace pcut {
+namespace detail { struct ModelTransitions; }
 using Complex = std::complex<double>;
 using Matrix = Eigen::MatrixXcd;
 using State = std::uint64_t;
@@ -48,7 +49,7 @@ public:
     [[nodiscard]] int charge(State state) const;
     [[nodiscard]] int particle_number(State state) const;
     void require_product_vacuum() const;
-    // Reject ambiguous tensor/graded mixtures before operator-valued linking.
+    // Reject incompatible tensor/graded mixtures before graded permutation readout.
     void require_operator_grading() const;
     [[nodiscard]] bool conserves_particles() const noexcept { return conserves_particles_; }
     [[nodiscard]] bool fermionic() const noexcept { return fermionic_; }
@@ -57,8 +58,9 @@ public:
     [[nodiscard]] Matrix dense_hamiltonian(double lambda) const;
 private:
     friend class EffectiveOperator;
+    friend struct detail::ModelTransitions;
     [[nodiscard]] SparseState apply_scaled(int change, const SparseState& state,
-                                            double divisor, std::size_t channel = static_cast<std::size_t>(-1)) const;
+                                            double divisor) const;
     struct Transition { State output; Complex value; };
     struct CompiledTerm {
         std::vector<std::size_t> sites;

@@ -1,5 +1,6 @@
 #include <pcut/model.hpp>
 #include "detail.hpp"
+#include "transitions.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -179,40 +180,15 @@ void ClusterModel::require_operator_grading() const {
 SparseState ClusterModel::apply(int change, const SparseState& input) const {
     return apply_scaled(change,input,1.0);
 }
-SparseState ClusterModel::apply_scaled(int change, const SparseState& input, double divisor, std::size_t channel) const {
+SparseState ClusterModel::apply_scaled(int change, const SparseState& input, double divisor) const {
     SparseState result;
     for (const auto& [state, amplitude] : input) {
         if (state >= dimension_ || !std::isfinite(amplitude.real()) || !std::isfinite(amplitude.imag()))
             throw std::invalid_argument("invalid sparse input state");
         if (amplitude == Complex{}) continue;
-        for (std::size_t t=0;t<terms_.size();++t) {
-            if (channel!=static_cast<std::size_t>(-1) && t!=channel) continue;
-            const auto& term=terms_[t];
-            const auto block = term.by_change->find(change);
-            if (block == term.by_change->end()) continue;
-            State column = 0, removed = 0;
-            for (std::size_t leg = 0; leg < term.sites.size(); ++leg) {
-                const auto s = term.sites[leg];
-                const State value = (state / strides_[s]) % spaces_[s].charges.size();
-                column += value * term.local_stride[leg];
-                removed += value * strides_[s];
-            }
-            for (const auto& transition : block->second[column]) {
-                State output = state - removed;
-                for (std::size_t leg = 0; leg < term.sites.size(); ++leg) {
-                    const auto s = term.sites[leg];
-                    output += ((transition.output / term.local_stride[leg]) % spaces_[s].charges.size()) * strides_[s];
-                }
-                unsigned parity = 0;
-                if (term.fermionic) for (auto [a,b] : term.inversions) {
-                    const auto pa = [&](State x, std::size_t site) {
-                        return spaces_[site].parity[(x / strides_[site]) % spaces_[site].charges.size()];
-                    };
-                    parity ^= (pa(state,a) & pa(state,b)) ^ (pa(output,a) & pa(output,b));
-                }
-                result[output] += (parity ? -amplitude : amplitude) * (transition.value / divisor);
-            }
-        }
+        detail::ModelTransitions::enumerate(*this,change,state,[&](State output,Complex value,std::size_t) {
+            result[output] += amplitude * (value / divisor);
+        });
     }
     // Remove exact cancellations only; no numerical Q-sector or amplitude truncation.
     for (auto it = result.begin(); it != result.end();)

@@ -261,7 +261,7 @@ TEST_CASE("Operator linking reconstructs connected and disconnected systems with
     const auto lattice=models::hubbard_chain();
     const WhiteGraphExpansion catalog(lattice,4);
     const auto linked=linked_zero_charge(catalog,fourth());
-    REQUIRE(catalog.embeddings()[1].subclusters.size()==2);
+    REQUIRE(catalog.embedding_subclusters(1).size()==2);
     for (const Cluster& edges : {Cluster{{0,{0}},{0,{1}},{0,{2}}}, Cluster{{0,{0}},{0,{2}}}}) {
         const auto model=cluster_model(lattice,edges);
         const auto sites=vertices(lattice,edges);
@@ -374,10 +374,11 @@ TEST_CASE("Symbolic Hubbard bindings preserve reversed legs and coupling sweeps"
     const auto count=initial.cache()->evaluations();
     lattice.interactions[0].channels[0].coupling*=0.7;
     const auto rebound=initial.bind(lattice.couplings());
-    for (const auto& entry : rebound.embeddings()) {
+    for (std::size_t index=0;index<rebound.embeddings().size();++index) {
+        const auto& entry=rebound.embeddings()[index];
         const auto model=pcut::cluster_model(lattice,entry.edges);
         const auto expected=pcut::zero_charge_operator(model,second);
-        const auto actual=rebound.block(entry,second,expected.basis);
+        const auto actual=rebound.block(index,second,expected.basis);
         for (unsigned n=0;n<=2;++n) near(actual[n],expected.coefficients[n]);
     }
     // Full raw blocks and edge-support projections have distinct cache contexts.

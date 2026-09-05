@@ -165,13 +165,14 @@ void add_embedded_operator(OperatorBlock& parent, const OperatorBlock& child,
 }
 LinkedOperator linked_zero_charge(const WhiteGraphExpansion& catalog, const EffectiveOperator& effective) {
     if (catalog.max_edges()<effective.order()) throw std::invalid_argument("catalog must cover operator order");
-    LinkedOperator result{catalog.lattice(),effective.order(),{}};
-    for (const auto& entry : catalog.embeddings()) {
+    LinkedOperator result{catalog.bound_lattice(),effective.order(),{}};
+    for (std::size_t index=0;index<catalog.embeddings().size();++index) {
+        const auto& entry=catalog.embeddings()[index];
         if (entry.edges.size()>effective.order()) break;
-        const auto& model=catalog.structural_model(entry);
+        const auto& model=catalog.structural_model(index);
         model.require_operator_grading();
         OperatorBlock block{model.spaces(),zero_charge_basis(model),{}};
-        block.coefficients=catalog.block(entry,effective,block.basis,true);
+        block.coefficients=catalog.block(index,effective,block.basis,true);
         block.coefficients[0].setZero(); // only bare reference constants at Q=0
         result.weights.push_back({entry.edges,entry.sites,std::move(block)});
     }

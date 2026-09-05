@@ -202,7 +202,11 @@ static CanonicalGraph canonicalize_impl(const WhiteGraph& g, bool validate, Sign
 }
 CanonicalGraph canonicalize(const WhiteGraph& graph) { Signatures pool; return canonicalize_impl(graph,true,pool); }
 struct WhiteGraphExpansion::Plan {
-    std::vector<GraphEntry> graphs;
+    PeriodicLattice lattice;
+    mutable std::once_flag graph_subclusters_once, embedding_subclusters_once;
+    mutable std::vector<std::vector<GraphSubcluster>> graph_subclusters;
+    mutable std::vector<std::vector<EmbeddedSubcluster>> embedding_subclusters;
+    std::vector<CanonicalGraph> graphs;
     std::vector<GraphEmbedding> embeddings;
     std::vector<ClusterModel> canonical_models, physical_models;
     struct Readout {
@@ -214,41 +218,49 @@ struct WhiteGraphExpansion::Plan {
     using BasisKey=std::tuple<std::size_t,std::vector<State>,bool>;
     mutable std::map<std::string,std::map<BasisKey,Readout>> readouts;
 };
-const std::vector<GraphEntry>& WhiteGraphExpansion::graphs() const noexcept { return plan_->graphs; }
+const std::vector<CanonicalGraph>& WhiteGraphExpansion::graphs() const noexcept { return plan_->graphs; }
 const std::vector<GraphEmbedding>& WhiteGraphExpansion::embeddings() const noexcept { return plan_->embeddings; }
+const PeriodicLattice& WhiteGraphExpansion::structure() const noexcept { return plan_->lattice; }
+PeriodicLattice WhiteGraphExpansion::bound_lattice() const {
+    auto result=structure();
+    for (std::size_t t=0;t<ratios_.size();++t)
+        for (std::size_t c=0;c<ratios_[t].size();++c) result.interactions[t].channels[c].coupling=ratios_[t][c];
+    return result;
+}
 WhiteGraphExpansion WhiteGraphExpansion::bind(const std::vector<std::vector<double>>& ratios) const {
-    if (ratios.size()!=lattice_.interactions.size()) throw std::invalid_argument("interaction coupling count mismatch");
-    auto result=*this;
+    return {plan_,max_edges_,cache_,ratios};
+}
+WhiteGraphExpansion::WhiteGraphExpansion(std::shared_ptr<const Plan> plan,unsigned max_edges,
+    std::shared_ptr<GraphCache> cache,const std::vector<std::vector<double>>& ratios)
+    : max_edges_(max_edges), cache_(std::move(cache)), plan_(std::move(plan)), ratios_(ratios) {
+    if (ratios.size()!=structure().interactions.size()) throw std::invalid_argument("interaction coupling count mismatch");
     for (std::size_t t=0;t<ratios.size();++t) {
-        auto& channels=result.lattice_.interactions[t].channels;
-        if (ratios[t].size()!=channels.size()) throw std::invalid_argument("channel coupling count mismatch");
-        for (std::size_t c=0;c<channels.size();++c) {
-            if (!std::isfinite(ratios[t][c])) throw std::invalid_argument("nonfinite coupling");
-            channels[c].coupling=ratios[t][c];
-        }
+        if (ratios[t].size()!=structure().interactions[t].channels.size()) throw std::invalid_argument("channel coupling count mismatch");
+        for (double x : ratios[t]) if (!std::isfinite(x)) throw std::invalid_argument("nonfinite coupling");
     }
-    result.couplings_.clear();
+    couplings_.reserve(embeddings().size());
     for (const auto& e : embeddings()) {
         std::vector<double> physical, canonical;
         for (const auto& edge : e.edges) for (double x : ratios[edge.type]) physical.push_back(x);
         for (auto c : e.map.channels) canonical.push_back(physical[c]);
-        result.couplings_.push_back(std::move(canonical));
+        couplings_.push_back(std::move(canonical));
     }
-    return result;
 }
-const std::vector<double>& WhiteGraphExpansion::couplings(const GraphEmbedding& embedding) const {
-    for (std::size_t i=0;i<embeddings().size();++i) if (&embeddings()[i]==&embedding) return couplings_[i];
-    throw std::invalid_argument("embedding must belong to this expansion");
+const std::vector<double>& WhiteGraphExpansion::couplings(std::size_t index) const {
+    return couplings_.at(index);
 }
-const ClusterModel& WhiteGraphExpansion::structural_model(const GraphEmbedding& embedding) const {
-    for (std::size_t i=0;i<embeddings().size();++i) if (&embeddings()[i]==&embedding) return plan_->physical_models[i];
-    throw std::invalid_argument("embedding must belong to this expansion");
+const ClusterModel& WhiteGraphExpansion::structural_model(std::size_t index) const {
+    return plan_->physical_models.at(index);
 }
 WhiteGraphExpansion::WhiteGraphExpansion(PeriodicLattice lattice,unsigned max_edges,std::shared_ptr<GraphCache> cache)
-    : lattice_(std::move(lattice)), max_edges_(max_edges), cache_(std::move(cache)) {
+    : max_edges_(max_edges), cache_(std::move(cache)) {
     if (max_edges>64 || !cache_) throw std::invalid_argument("invalid white graph order or cache");
-    lattice_.validate();
+    lattice.validate();
+    const auto ratios=lattice.couplings();
+    for (auto& interaction : lattice.interactions) for (auto& c : interaction.channels) c.coupling=1;
     auto plan=std::make_shared<Plan>();
+    plan->lattice=std::move(lattice);
+    const auto& lattice_=plan->lattice;
     auto& graphs_=plan->graphs;
     auto& embeddings_=plan->embeddings;
     Signatures signatures;
@@ -290,7 +302,7 @@ WhiteGraphExpansion::WhiteGraphExpansion(PeriodicLattice lattice,unsigned max_ed
             auto canonical=canonicalize_graph(graph);
             auto [it,fresh]=indices.emplace(canonical.key,graphs_.size());
             embedding.graph=it->second; embedding.map=canonical.map;
-            if (fresh) graphs_.push_back({std::move(canonical),{}});
+            if (fresh) graphs_.push_back(std::move(canonical));
             embeddings_.push_back(std::move(embedding));
         }
         if (size==max_edges) break;
@@ -304,8 +316,27 @@ WhiteGraphExpansion::WhiteGraphExpansion(PeriodicLattice lattice,unsigned max_ed
                 }
         level=std::move(next);
     }
-    for (auto& entry : graphs_) {
-        const auto& graph=entry.canonical.graph;
+    std::sort(embeddings_.begin(),embeddings_.end(),[](const auto& a,const auto& b) {
+        return a.edges.size()==b.edges.size() ? a.edges<b.edges : a.edges.size()<b.edges.size();
+    });
+    for (const auto& graph : graphs_) plan->canonical_models.push_back(graph.graph.model(lattice_.gap));
+    for (const auto& e : embeddings_)
+        plan->physical_models.push_back(plan->canonical_models[e.graph].reordered(e.map.vertices));
+    plan_=std::move(plan);
+    *this=bind(ratios);
+}
+const std::vector<GraphSubcluster>& WhiteGraphExpansion::graph_subclusters(std::size_t index) const {
+    (void)graphs().at(index);
+    std::call_once(plan_->graph_subclusters_once,[&] {
+        const auto& graphs_=graphs();
+        std::vector<std::vector<GraphSubcluster>> result(graphs_.size());
+        std::map<std::string,std::size_t> indices;
+        for (std::size_t i=0;i<graphs_.size();++i) indices.emplace(graphs_[i].key,i);
+        Signatures signatures;
+        auto canonicalize_graph=[&](const WhiteGraph& graph) { return canonicalize_impl(graph,false,signatures); };
+        for (std::size_t i=0;i<graphs_.size();++i) {
+            const auto& entry=graphs_[i];
+            const auto& graph=entry.graph;
             const auto parent_offsets=offsets(graph);
             std::set<std::vector<std::size_t>> visited;
             std::vector<std::vector<std::size_t>> pending(1);
@@ -334,59 +365,68 @@ WhiteGraphExpansion::WhiteGraphExpansion(PeriodicLattice lattice,unsigned max_ed
                     for (auto v : c.map.vertices) map.vertices.push_back(vertex_map[v]);
                     for (auto e : c.map.edges) map.edges.push_back(selected[e]);
                     for (auto v : c.map.channels) map.channels.push_back(variable_map[v]);
-                    entry.subclusters.push_back({indices.at(c.key),std::move(map)});
+                    result[i].push_back({indices.at(c.key),std::move(map)});
                 }
             }
-    }
-    std::sort(embeddings_.begin(),embeddings_.end(),[](const auto& a,const auto& b) {
-        return a.edges.size()==b.edges.size() ? a.edges<b.edges : a.edges.size()<b.edges.size();
+        }
+        plan_->graph_subclusters=std::move(result);
     });
-    std::map<Cluster,std::size_t> physical_indices;
-    for (std::size_t i=0;i<embeddings_.size();++i) physical_indices.emplace(embeddings_[i].edges,i);
-    for (auto& parent : embeddings_) for (const auto& sub : graphs_[parent.graph].subclusters) {
-        Cluster edges;
-        for (auto e : sub.map.edges) edges.push_back(parent.edges[parent.map.edges[e]]);
-        const auto normalized=normalize(edges);
-        const auto index=physical_indices.at(normalized.cluster);
-        const auto& child=embeddings_[index];
-        GraphMap map;
-        for (auto site : child.sites) {
-            site.cell=detail::translate(site.cell,normalized.shift);
-            map.vertices.push_back(static_cast<std::size_t>(std::lower_bound(parent.sites.begin(),parent.sites.end(),site)-parent.sites.begin()));
+    return plan_->graph_subclusters[index];
+}
+const std::vector<EmbeddedSubcluster>& WhiteGraphExpansion::embedding_subclusters(std::size_t index) const {
+    (void)embeddings().at(index);
+    std::call_once(plan_->embedding_subclusters_once,[&] {
+        const auto& embeddings_=embeddings();
+        const auto& lattice_=structure();
+        std::vector<std::vector<EmbeddedSubcluster>> result(embeddings_.size());
+        std::map<Cluster,std::size_t> physical_indices;
+        for (std::size_t i=0;i<embeddings_.size();++i) physical_indices.emplace(embeddings_[i].edges,i);
+        for (std::size_t i=0;i<embeddings_.size();++i) {
+            const auto& parent=embeddings_[i];
+            for (const auto& sub : graph_subclusters(parent.graph)) {
+                Cluster edges;
+                for (auto e : sub.map.edges) edges.push_back(parent.edges[parent.map.edges[e]]);
+                const auto normalized=normalize(edges);
+                const auto child_index=physical_indices.at(normalized.cluster);
+                const auto& child=embeddings_[child_index];
+                GraphMap map;
+                for (auto site : child.sites) {
+                    site.cell=detail::translate(site.cell,normalized.shift);
+                    map.vertices.push_back(static_cast<std::size_t>(std::lower_bound(parent.sites.begin(),parent.sites.end(),site)-parent.sites.begin()));
+                }
+                std::vector<std::size_t> parent_offsets{0};
+                for (const auto& e : parent.edges) parent_offsets.push_back(parent_offsets.back()+lattice_.interactions[e.type].channels.size());
+                for (auto edge : child.edges) {
+                    edge.origin=detail::translate(edge.origin,normalized.shift);
+                    const auto e=static_cast<std::size_t>(std::lower_bound(parent.edges.begin(),parent.edges.end(),edge)-parent.edges.begin());
+                    map.edges.push_back(e);
+                    for (std::size_t c=parent_offsets[e];c<parent_offsets[e+1];++c) map.channels.push_back(c);
+                }
+                result[i].push_back({child_index,std::move(map)});
+            }
         }
-        std::vector<std::size_t> parent_offsets{0};
-        for (const auto& e : parent.edges) parent_offsets.push_back(parent_offsets.back()+lattice_.interactions[e.type].channels.size());
-        for (auto edge : child.edges) {
-            edge.origin=detail::translate(edge.origin,normalized.shift);
-            const auto e=static_cast<std::size_t>(std::lower_bound(parent.edges.begin(),parent.edges.end(),edge)-parent.edges.begin());
-            map.edges.push_back(e);
-            for (std::size_t c=parent_offsets[e];c<parent_offsets[e+1];++c) map.channels.push_back(c);
-        }
-        parent.subclusters.push_back({index,std::move(map)});
-    }
-    for (const auto& graph : graphs_) plan->canonical_models.push_back(graph.canonical.graph.model(lattice_.gap));
-    for (const auto& e : embeddings_)
-        plan->physical_models.push_back(plan->canonical_models[e.graph].reordered(e.map.vertices));
-    plan_=std::move(plan);
-    std::vector<std::vector<double>> ratios;
-    for (const auto& interaction : lattice_.interactions) {
-        ratios.emplace_back(); for (const auto& c : interaction.channels) ratios.back().push_back(c.coupling);
-    }
-    *this=bind(ratios);
-
+        plan_->embedding_subclusters=std::move(result);
+    });
+    return plan_->embedding_subclusters[index];
 }
 ScalarEvaluator::ScalarEvaluator(Function function) : function_(std::make_shared<const Function>(std::move(function))) {
     if (!*function_) throw std::invalid_argument("empty symbolic scalar evaluator");
 }
 std::shared_ptr<const SymbolicBlock> GraphCache::block(const CanonicalGraph& graph,double gap,
     const EffectiveOperator& effective,const std::vector<State>& basis,bool linked) {
+    return compiled_block(graph,gap,effective,basis,linked,nullptr);
+}
+std::shared_ptr<const SymbolicBlock> GraphCache::compiled_block(const CanonicalGraph& graph,double gap,
+    const EffectiveOperator& effective,const std::vector<State>& basis,bool linked,const ClusterModel* model) {
     std::string key; number(key,linked); string(key,evaluation_key(graph.graph)); real(key,gap); string(key,effective.identity()); sequence(key,basis);
     std::lock_guard lock(mutex_);
     if (const auto it=blocks_.find(key);it!=blocks_.end()) { ++hits_; return it->second; }
     std::vector<std::size_t> channel_edges;
     if (linked) for (std::size_t e=0;e<graph.graph.edges.size();++e)
         for (std::size_t c=0;c<graph.graph.edges[e].channels.size();++c) channel_edges.push_back(e);
-    auto value=std::make_shared<const SymbolicBlock>(effective.symbolic_block(graph.graph.model(gap),basis,channel_edges));
+    std::optional<ClusterModel> owned;
+    if (!model) { owned.emplace(graph.graph.model(gap)); model=&*owned; }
+    auto value=std::make_shared<const SymbolicBlock>(effective.symbolic_block(*model,basis,channel_edges));
     blocks_.emplace(std::move(key),value); ++evaluations_; return value;
 }
 std::shared_ptr<const SymbolicSeries> GraphCache::scalar(const CanonicalGraph& graph,double gap,
@@ -408,17 +448,18 @@ std::shared_ptr<const SymbolicSeries> GraphCache::scalar(const CanonicalGraph& g
 void GraphCache::record_hit() { std::lock_guard lock(mutex_); ++hits_; }
 std::size_t GraphCache::evaluations() const { std::lock_guard lock(mutex_); return evaluations_; }
 std::size_t GraphCache::hits() const { std::lock_guard lock(mutex_); return hits_; }
-std::vector<Matrix> WhiteGraphExpansion::block(const GraphEmbedding& embedding,const EffectiveOperator& effective,
+std::vector<Matrix> WhiteGraphExpansion::block(std::size_t index,const EffectiveOperator& effective,
     const std::vector<State>& basis,bool linked) const {
-    const auto& physical=structural_model(embedding);
+    const auto& physical=structural_model(index);
+    const auto& embedding=embeddings()[index];
+    if (physical.fermionic()) physical.require_operator_grading();
     if (effective.order()>max_edges_) throw std::invalid_argument("graph expansion does not cover order");
-    const auto index=static_cast<std::size_t>(&embedding-embeddings().data()); // structural_model() validated ownership
     std::lock_guard lock(plan_->mutex);
     auto& program=plan_->readouts[effective.identity()];
     const Plan::BasisKey key{index,basis,linked};
     auto found=program.find(key);
     if (found==program.end()) {
-        const auto& graph=graphs().at(embedding.graph).canonical;
+        const auto& graph=graphs().at(embedding.graph);
         const auto& canonical=plan_->canonical_models[embedding.graph];
         std::map<State,std::pair<Eigen::Index,int>> indices;
         const auto inversions=detail::gather_inversions(physical.sites(),embedding.map.vertices);
@@ -434,7 +475,7 @@ std::vector<Matrix> WhiteGraphExpansion::block(const GraphEmbedding& embedding,c
         std::vector<State> requested;
         for (const auto& [state,position] : indices) { (void)position; requested.push_back(state); }
         Plan::Readout readout;
-        readout.block=cache_->block(graph,lattice_.gap,effective,requested,linked);
+        readout.block=cache_->compiled_block(graph,structure().gap,effective,requested,linked,&canonical);
         readout.entries.resize(effective.order()+1);
         for (std::size_t n=0;n<readout.entries.size();++n) for (const auto& [states,p] : readout.block->coefficients[n]) {
             const auto [i,si]=indices.at(states.first); const auto [j,sj]=indices.at(states.second);

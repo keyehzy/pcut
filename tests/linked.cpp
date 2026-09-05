@@ -9,8 +9,8 @@ TEST_CASE("Chain catalog includes every embedded subinterval", "[lattice]") {
     for (std::size_t n = 1; n <= 5; ++n) {
         const auto& e = catalog.embeddings()[n-1];
         REQUIRE(e.sites.size() == n+1);
-        REQUIRE(e.subclusters.size() == n*(n+1)/2-1);
-        REQUIRE(pcut::connected(catalog.lattice(),e.edges));
+        REQUIRE(catalog.embedding_subclusters(n-1).size() == n*(n+1)/2-1);
+        REQUIRE(pcut::connected(catalog.structure(),e.edges));
     }
     const auto a = pcut::normalize({{0,{-7}},{0,{-6}}});
     REQUIRE(a.cluster == catalog.embeddings()[1].edges);

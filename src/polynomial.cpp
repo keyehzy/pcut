@@ -64,7 +64,6 @@ Complex substitute(const Polynomial& polynomial, const std::vector<double>& valu
     for (double x : values) if (!std::isfinite(x)) throw std::invalid_argument("nonfinite coupling");
     Complex result=0;
     for (const auto& [m,c] : polynomial) {
-        (void)m.degree();
         Complex value=c;
         m.for_each_power([&](std::size_t v,unsigned n) { value*=std::pow(values.at(v),n); });
         result+=value;

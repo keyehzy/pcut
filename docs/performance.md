@@ -78,7 +78,8 @@ do not isolate the cache's contribution. There is no claim of memory improvement
 The implementation changes are general engine operations:
 
 - `WhiteGraphExpansion::bind(lattice.couplings())` shares immutable canonical
-  graphs, infinite embeddings, connected-subcluster maps, compiled models and
+  lattice/operator structure, graphs, infinite embeddings, lazy connected-subcluster
+  maps, compiled models and
   sparse readout plans. Numerical ratios remain binding data.
 - Infinite edge-set growth supplies embedding witnesses for canonical white
   graphs. Exact structural signatures and canonicalization results are reused

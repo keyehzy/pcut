@@ -81,7 +81,8 @@ that share a charge-change alphabet. Pass a shared `GraphCache` to
 `WhiteGraphExpansion(lattice, order, cache)` to reuse symbolic graph blocks.
 For a coupling sweep, construct the expansion once and use
 `clusters.bind(new_lattice.couplings())`; bindings share immutable topology,
-embeddings, subcluster maps, compiled operators and sparse block readout plans.
+embeddings, lazily constructed subcluster maps, compiled operators and sparse
+block readout plans.
 See [measured performance and trade-offs](docs/performance.md) for reproducible
 comparisons with `a22f963`.
 `Interaction::channels` separates fixed `OperatorChannel{matrix, fermionic}`

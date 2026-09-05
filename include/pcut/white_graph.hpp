@@ -32,10 +32,6 @@ struct GraphSubcluster {
     std::size_t graph;
     GraphMap map; // child's canonical graph -> parent canonical graph
 };
-struct GraphEntry {
-    CanonicalGraph canonical;
-    std::vector<GraphSubcluster> subclusters; // all connected edge subsets, including multiplicity
-};
 struct EmbeddedSubcluster {
     std::size_t index;
     GraphMap map; // physical child -> physical parent
@@ -45,7 +41,6 @@ struct GraphEmbedding {
     Cluster edges; // normalized physical edge set; one occurrence per translation class
     std::vector<Site> sites; // sorted physical sites
     GraphMap map; // canonical -> physical sorted vertices, edges, flattened channels
-    std::vector<EmbeddedSubcluster> subclusters;
 };
 // Own this object across sweeps. Callbacks must be pure, isomorphism-covariant,
 // cluster additive and return homogeneous corrections with degree n at order n.
@@ -69,6 +64,9 @@ public:
 private:
     friend class WhiteGraphExpansion;
     void record_hit();
+    [[nodiscard]] std::shared_ptr<const SymbolicBlock> compiled_block(const CanonicalGraph& graph,
+        double gap, const EffectiveOperator& effective, const std::vector<State>& basis,
+        bool linked, const ClusterModel* model);
     mutable std::mutex mutex_;
     std::map<std::string,std::shared_ptr<const SymbolicBlock>> blocks_;
     std::map<std::string,std::shared_ptr<const SymbolicSeries>> scalars_;
@@ -82,28 +80,36 @@ class WhiteGraphExpansion {
 public:
     WhiteGraphExpansion(PeriodicLattice lattice, unsigned max_edges,
                         std::shared_ptr<GraphCache> cache = std::make_shared<GraphCache>());
-    [[nodiscard]] const PeriodicLattice& lattice() const noexcept { return lattice_; }
+    // Shared immutable structure with unit couplings; bound_lattice() materializes a bound copy.
+    [[nodiscard]] const PeriodicLattice& structure() const noexcept;
+    [[nodiscard]] PeriodicLattice bound_lattice() const;
     [[nodiscard]] unsigned max_edges() const noexcept { return max_edges_; }
-    [[nodiscard]] const std::vector<GraphEntry>& graphs() const noexcept;
+    [[nodiscard]] const std::vector<CanonicalGraph>& graphs() const noexcept;
     [[nodiscard]] const std::vector<GraphEmbedding>& embeddings() const noexcept;
+    // Lazily generated connected subsets, retaining every occurrence. Shared across bindings.
+    [[nodiscard]] const std::vector<GraphSubcluster>& graph_subclusters(std::size_t graph) const;
+    [[nodiscard]] const std::vector<EmbeddedSubcluster>& embedding_subclusters(std::size_t index) const;
     // Ratios in physical interaction/channel order. Shares the immutable plan.
     [[nodiscard]] WhiteGraphExpansion bind(const std::vector<std::vector<double>>& couplings) const;
-    [[nodiscard]] const std::vector<double>& couplings(const GraphEmbedding& embedding) const;
+    [[nodiscard]] const std::vector<double>& couplings(std::size_t index) const;
     // Compiled unbound operators in physical site order; ratios are not substituted.
-    [[nodiscard]] const ClusterModel& structural_model(const GraphEmbedding& embedding) const;
+    [[nodiscard]] const ClusterModel& structural_model(std::size_t index) const;
     [[nodiscard]] const std::shared_ptr<GraphCache>& cache() const noexcept { return cache_; }
-    // Pass an embedding reference from this expansion. External basis uses sorted physical sites. Both state and formal variable
-    // relabelings are applied, including the graded Fock permutation.
+    // Index into embeddings(). External basis uses sorted physical sites. Both state and formal variable
+    // relabelings are applied, including the graded Fock permutation. If any
+    // channel is fermionic, tensor channels must preserve each site parity.
     // linked=true projects onto full-edge monomial support; vacuum subtraction
     // is still required for a one-particle kernel.
-    [[nodiscard]] std::vector<Matrix> block(const GraphEmbedding& embedding,
+    [[nodiscard]] std::vector<Matrix> block(std::size_t index,
         const EffectiveOperator& effective, const std::vector<State>& basis, bool linked = false) const;
 private:
-    PeriodicLattice lattice_;
     unsigned max_edges_;
     std::shared_ptr<GraphCache> cache_;
     struct Plan;
     std::shared_ptr<const Plan> plan_;
+    WhiteGraphExpansion(std::shared_ptr<const Plan> plan, unsigned max_edges,
+        std::shared_ptr<GraphCache> cache, const std::vector<std::vector<double>>& ratios);
+    std::vector<std::vector<double>> ratios_;
     std::vector<std::vector<double>> couplings_;
 };
 }

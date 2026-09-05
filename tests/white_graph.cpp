@@ -80,12 +80,14 @@ WhiteGraph permute(const WhiteGraph& g,const std::vector<std::size_t>& permutati
     return out;
 }
 void compare_blocks(const WhiteGraphExpansion& expansion,const EffectiveOperator& effective,bool zero=false) {
-    for (const auto& e : expansion.embeddings()) {
-        const auto model=cluster_model(expansion.lattice(),e.edges);
+    const auto lattice=expansion.bound_lattice();
+    for (std::size_t index=0;index<expansion.embeddings().size();++index) {
+        const auto& e=expansion.embeddings()[index];
+        const auto model=cluster_model(lattice,e.edges);
         std::vector<State> basis;
         if (zero) basis=zero_charge_basis(model);
         else for (State s=0;s<model.dimension();++s) basis.push_back(s);
-        const auto expected=effective.block(model,basis), actual=expansion.block(e,effective,basis);
+        const auto expected=effective.block(model,basis), actual=expansion.block(index,effective,basis);
         for (std::size_t n=0;n<actual.size();++n) {
             INFO("order " << n << ", edges " << e.edges.size());
             REQUIRE((actual[n]-expected[n]).norm()<1e-10);
@@ -165,12 +167,13 @@ TEST_CASE("Channel monomials and mapped subcluster subtraction preserve multipli
     REQUIRE(sum.per_cell[1].real()==Catch::Approx(0.7-0.2+2*0.31));
     for (std::size_t i=0;i<expansion.embeddings().size();++i) if (expansion.embeddings()[i].edges.size()>1)
         REQUIRE(std::abs(sum.weights[i][1])<1e-14);
-    for (const auto& entry : expansion.graphs()) for (const auto& sub : entry.subclusters) {
-        const auto& child=expansion.graphs()[sub.graph].canonical.graph;
+    for (std::size_t graph=0;graph<expansion.graphs().size();++graph) for (const auto& sub : expansion.graph_subclusters(graph)) {
+        const auto& entry=expansion.graphs()[graph];
+        const auto& child=expansion.graphs()[sub.graph].graph;
         REQUIRE(sub.map.channels.size()==child.variables());
         REQUIRE(sub.map.edges.size()==child.edges.size());
         for (std::size_t e=0;e<child.edges.size();++e) for (std::size_t l=0;l<child.edges[e].legs.size();++l)
-            REQUIRE(sub.map.vertices[child.edges[e].legs[l]]==entry.canonical.graph.edges[sub.map.edges[e]].legs[l]);
+            REQUIRE(sub.map.vertices[child.edges[e].legs[l]]==entry.graph.edges[sub.map.edges[e]].legs[l]);
     }
     const ScalarEvaluator vacuum([effective](const WhiteGraph& g,double gap,unsigned order) {
         const auto block=effective.symbolic_block(g.model(gap),{0});
@@ -332,8 +335,8 @@ TEST_CASE("Coupling bindings share plans and reject malformed ratios", "[white]"
     const auto bound=original.bind({{0},{-0.8}});
     REQUIRE(&bound.graphs()==&original.graphs());
     REQUIRE(&bound.embeddings()==&original.embeddings());
-    REQUIRE(original.lattice().interactions[0].channels[0].coupling==0.7);
-    REQUIRE(bound.lattice().interactions[0].channels[0].coupling==0);
+    REQUIRE(original.bound_lattice().interactions[0].channels[0].coupling==0.7);
+    REQUIRE(bound.bound_lattice().interactions[0].channels[0].coupling==0);
     REQUIRE_THROWS_AS(original.bind({{1}}),std::invalid_argument);
     REQUIRE_THROWS_AS(original.bind({{1,2},{3}}),std::invalid_argument);
     REQUIRE_THROWS_AS(original.bind({{1},{std::numeric_limits<double>::infinity()}}),std::invalid_argument);
@@ -346,12 +349,13 @@ TEST_CASE("Hubbard edge support agrees with full mapped subtraction at unequal a
     for (const auto& ratios : {std::vector<std::vector<double>>{{0.7},{-0.2}},{{0},{0.9}}}) {
         const auto bound=plan.bind(ratios);
         const auto actual=linked_zero_charge(bound,effective);
+        const auto bound_lattice=bound.bound_lattice();
         std::vector<OperatorBlock> weights;
         for (std::size_t i=0;i<bound.embeddings().size();++i) {
             const auto& embedding=bound.embeddings()[i];
-            auto weight=zero_charge_operator(cluster_model(bound.lattice(),embedding.edges),effective);
+            auto weight=zero_charge_operator(cluster_model(bound_lattice,embedding.edges),effective);
             weight.coefficients[0].setZero();
-            for (const auto& sub : embedding.subclusters)
+            for (const auto& sub : bound.embedding_subclusters(i))
                 add_embedded_operator(weight,weights[sub.index],sub.map.vertices,-1);
             REQUIRE(weight.basis==actual.weights[i].block.basis);
             for (unsigned n=0;n<=4;++n) {
@@ -362,4 +366,73 @@ TEST_CASE("Hubbard edge support agrees with full mapped subtraction at unequal a
         }
     }
     REQUIRE(plan.cache()->evaluations()==plan.graphs().size());
+}
+
+TEST_CASE("Canonical readout rejects incompatible mixed statistics and preserves complete valid blocks", "[white][fermion]") {
+    const LocalSpace site{{0,1},0,"graded",{0,1},{0,1}};
+    Matrix hopping=Matrix::Zero(8,8);
+    for (Eigen::Index spectator : {0,4}) hopping(1+spectator,2+spectator)=hopping(2+spectator,1+spectator)=1;
+    const EffectiveOperator effective(Coefficients({0},1));
+    const std::vector<State> basis{0,1,2,3,4,5,6,7};
+    std::vector<std::size_t> permutation{0,1,2};
+    do {
+        std::vector<Site> legs;
+        for (auto v : permutation) legs.push_back({{0},v});
+        PeriodicLattice lattice{1,{site,site,site},{}};
+        lattice.interactions.push_back({legs,{{{hopping,false},1},{{Matrix::Identity(8,8),true},0.3}}});
+        const WhiteGraphExpansion mixed(lattice,1);
+        const auto model=cluster_model(lattice,mixed.embeddings()[0].edges);
+        const auto direct=effective.block(model,basis);
+        const auto symbolic=effective.symbolic_block(model,basis);
+        // Finite evaluation supports explicitly mixed conventions without any
+        // canonical permutation. Check every matrix entry, including spectators.
+        for (unsigned n=0;n<=1;++n) for (State row : basis) for (State col : basis) {
+            const auto it=symbolic.coefficients[n].find({row,col});
+            const auto value=it==symbolic.coefficients[n].end() ? Complex{} : substitute(it->second,{1,1});
+            REQUIRE(std::abs(value-direct[n](static_cast<Eigen::Index>(row),static_cast<Eigen::Index>(col)))<1e-12);
+        }
+        REQUIRE_THROWS_AS(mixed.block(0,effective,basis),std::invalid_argument);
+        REQUIRE_THROWS_AS(mixed.block(0,effective,basis,true),std::invalid_argument);
+        // Fully graded hopping and a compatible tensor diagonal both transform
+        // covariantly. Exercise all physical leg permutations and full blocks.
+        lattice.interactions[0].channels[0].op.fermionic=true;
+        compare_blocks(WhiteGraphExpansion(lattice,1),effective);
+        lattice.interactions[0].channels[0].op.fermionic=false;
+        lattice.interactions[0].channels[0].op.matrix=hopping*hopping;
+        compare_blocks(WhiteGraphExpansion(lattice,1),effective);
+        // Pure tensor channels remain valid even with parity metadata.
+        lattice.interactions[0].channels[0].op.matrix=hopping;
+        lattice.interactions[0].channels[1].op.fermionic=false;
+        compare_blocks(WhiteGraphExpansion(lattice,1),effective);
+    } while (std::next_permutation(permutation.begin(),permutation.end()));
+}
+
+TEST_CASE("Indexed bindings share immutable operators and lazily requested subtraction maps", "[white]") {
+    const WhiteGraphExpansion original(square(),3);
+    const auto bound=original.bind({{0},{-0.8}});
+    REQUIRE(&original.structure()==&bound.structure());
+    const EffectiveOperator effective(Coefficients(charge_changes(original.structure()),3));
+    (void)linked_expand(original,effective);
+    for (std::size_t i=0;i<original.embeddings().size();++i) {
+        REQUIRE(&original.structural_model(i)==&bound.structural_model(i));
+        REQUIRE(&original.embedding_subclusters(i)==&bound.embedding_subclusters(i));
+        // Independent exhaustive subset count checks multiplicities after lazy
+        // construction, including children repeated at different positions.
+        const auto& edges=original.embeddings()[i].edges;
+        std::size_t count=0;
+        for (unsigned mask=1;mask+1<(1u<<edges.size());++mask) {
+            Cluster subset;
+            for (std::size_t e=0;e<edges.size();++e) if (mask&(1u<<e)) subset.push_back(edges[e]);
+            if (connected(original.structure(),subset)) ++count;
+        }
+        REQUIRE(original.embedding_subclusters(i).size()==count);
+    }
+    for (std::size_t g=0;g<original.graphs().size();++g)
+        REQUIRE(&original.graph_subclusters(g)==&bound.graph_subclusters(g));
+    const auto invalid=original.embeddings().size();
+    REQUIRE_THROWS_AS(original.couplings(invalid),std::out_of_range);
+    REQUIRE_THROWS_AS(original.structural_model(invalid),std::out_of_range);
+    REQUIRE_THROWS_AS(original.block(invalid,effective,{0}),std::out_of_range);
+    REQUIRE_THROWS_AS(original.embedding_subclusters(invalid),std::out_of_range);
+    REQUIRE_THROWS_AS(original.graph_subclusters(original.graphs().size()),std::out_of_range);
 }

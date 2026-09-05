@@ -29,6 +29,7 @@ private:
     struct FactoredNode { Rational coefficient; std::vector<FactoredEdge> edges; };
     std::vector<std::vector<FactoredNode>> layers_;
     Rational root_scale_=1;
+    void factor_program();
 };
 struct ParticleState {
     std::size_t site;

@@ -20,16 +20,18 @@ ScalarExpansion linked_scalar(const WhiteGraphExpansion& catalog, unsigned order
     ScalarExpansion result{Series(order+1), {}};
     result.per_cell[0]=reference_per_cell;
     std::vector<SymbolicSeries> weights;
-    for (const auto& entry : catalog.graphs()) {
-        if (entry.canonical.graph.edges.size()>order) break;
-        auto weight=*catalog.cache()->scalar(entry.canonical,catalog.lattice().gap,order,evaluator);
-        for (const auto& sub : entry.subclusters) for (unsigned n=1;n<=order;++n)
+    for (std::size_t graph=0;graph<catalog.graphs().size();++graph) {
+        const auto& entry=catalog.graphs()[graph];
+        if (entry.graph.edges.size()>order) break;
+        auto weight=*catalog.cache()->scalar(entry,catalog.structure().gap,order,evaluator);
+        for (const auto& sub : catalog.graph_subclusters(graph)) for (unsigned n=1;n<=order;++n)
             add_polynomial(weight[n],weights[sub.graph][n],-1,&sub.map.channels);
         weights.push_back(std::move(weight));
     }
-    for (const auto& embedding : catalog.embeddings()) {
+    for (std::size_t index=0;index<catalog.embeddings().size();++index) {
+        const auto& embedding=catalog.embeddings()[index];
         if (embedding.edges.size()>order) break;
-        auto value=substitute(weights[embedding.graph],catalog.couplings(embedding));
+        auto value=substitute(weights[embedding.graph],catalog.couplings(index));
         for (unsigned n=1;n<=order;++n) result.per_cell[n]+=value[n];
         result.weights.push_back(std::move(value));
     }
@@ -38,12 +40,19 @@ ScalarExpansion linked_scalar(const WhiteGraphExpansion& catalog, unsigned order
 std::vector<int> charge_changes(const PeriodicLattice& lattice) {
     lattice.validate();
     std::set<int> changes;
-    for (std::size_t type = 0; type < lattice.interactions.size(); ++type) {
-        auto uncolored=lattice;
-        for (auto& channel : uncolored.interactions[type].channels) channel.coupling=1;
-        // Include every channel separately: cancellation or zero couplings must
-        // not remove a letter from the symbolic coefficient alphabet.
-        const auto model = cluster_model(uncolored, {{type, Coordinate(lattice.dimension,0)}});
+    for (const auto& interaction : lattice.interactions) {
+        std::vector<LocalSpace> spaces;
+        std::vector<std::size_t> legs;
+        for (const auto& site : interaction.legs) {
+            legs.push_back(spaces.size());
+            spaces.push_back(lattice.cell[site.basis]);
+        }
+        std::vector<LocalTerm> terms;
+        for (const auto& channel : interaction.channels)
+            terms.push_back({legs,channel.op.matrix,channel.op.fermionic});
+        // Compile unbound channels separately, preserving letters even when
+        // numerical couplings vanish or cancel.
+        const ClusterModel model(std::move(spaces),std::move(terms),lattice.gap);
         changes.insert(model.changes().begin(),model.changes().end());
     }
     return {changes.begin(),changes.end()};
@@ -51,7 +60,7 @@ std::vector<int> charge_changes(const PeriodicLattice& lattice) {
 LinkedResult linked_expand(const WhiteGraphExpansion& catalog, const EffectiveOperator& effective, LinkedOptions options) {
     const auto order = effective.order();
     check_order(catalog,order);
-    const auto& lattice = catalog.lattice();
+    const auto& lattice = catalog.structure();
     for (const auto& space : lattice.cell) space.require_product_vacuum();
     LinkedResult result;
     result.dimension = lattice.dimension;
@@ -65,32 +74,24 @@ LinkedResult linked_expand(const WhiteGraphExpansion& catalog, const EffectiveOp
         Series s(order+1); s[0] = lattice.gap;
         result.hopping.emplace(Hopping{a,a,Coordinate(lattice.dimension,0)},std::move(s));
     }
-    struct Weight { std::vector<ParticleState> basis; std::vector<Matrix> h1; };
-    for (const auto& entry : catalog.embeddings()) {
+    for (std::size_t index=0;index<catalog.embeddings().size();++index) {
+        const auto& entry=catalog.embeddings()[index];
         if (entry.edges.size()>order) break;
-        const auto& model = catalog.structural_model(entry);
-        Weight weight;
+        const auto& model = catalog.structural_model(index);
+        std::vector<ParticleState> basis;
         std::vector<State> states{0};
         if (options.one_particle) {
-            weight.basis=one_particle_basis(model);
-            for (const auto& p : weight.basis) states.push_back(p.state);
+            basis=one_particle_basis(model);
+            for (const auto& p : basis) states.push_back(p.state);
         }
-        const auto raw=catalog.block(entry,effective,states,true);
-        Series raw_energy(order+1);
-        for (unsigned n=0;n<=order;++n) raw_energy[n]=raw[n](0,0);
-        auto energy=raw_energy; energy[0]=0;
-        if (options.one_particle) {
-            weight.h1=detail::matrix_series(weight.basis.size(),order+1);
-            for (unsigned n=1;n<=order;++n) {
-                weight.h1[n]=raw[n].bottomRightCorner(static_cast<Eigen::Index>(weight.basis.size()),static_cast<Eigen::Index>(weight.basis.size()));
-                weight.h1[n].diagonal().array()-=raw_energy[n];
-            }
-        }
+        const auto raw=catalog.block(index,effective,states,true);
+        Series energy(order+1);
+        for (unsigned n=1;n<=order;++n) energy[n]=raw[n](0,0);
         for (unsigned n = 1; n <= order; ++n) result.energy_per_cell[n] += energy[n];
         result.vacuum_weights.push_back(std::move(energy));
         if (options.one_particle) {
-            for (std::size_t i = 0; i < weight.basis.size(); ++i) for (std::size_t j = 0; j < weight.basis.size(); ++j) {
-                const auto& out = weight.basis[i]; const auto& in = weight.basis[j];
+            for (std::size_t i = 0; i < basis.size(); ++i) for (std::size_t j = 0; j < basis.size(); ++j) {
+                const auto& out = basis[i]; const auto& in = basis[j];
                 const auto& out_site = entry.sites[out.site]; const auto& in_site = entry.sites[in.site];
                 const auto out_flavor = static_cast<std::size_t>(std::lower_bound(result.flavors.begin(),result.flavors.end(),Flavor{out_site.basis,out.local})-result.flavors.begin());
                 const auto in_flavor = static_cast<std::size_t>(std::lower_bound(result.flavors.begin(),result.flavors.end(),Flavor{in_site.basis,in.local})-result.flavors.begin());
@@ -99,7 +100,8 @@ LinkedResult linked_expand(const WhiteGraphExpansion& catalog, const EffectiveOp
                 auto& series = result.hopping[key];
                 if (series.empty()) series.resize(order+1);
                 for (unsigned n = 1; n <= order; ++n)
-                    series[n] += weight.h1[n](static_cast<Eigen::Index>(i),static_cast<Eigen::Index>(j));
+                    series[n] += raw[n](static_cast<Eigen::Index>(i+1),static_cast<Eigen::Index>(j+1))
+                        - (i==j ? raw[n](0,0) : Complex{});
             }
         }
     }

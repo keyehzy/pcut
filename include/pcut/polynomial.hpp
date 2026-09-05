@@ -36,7 +36,6 @@ private:
 };
 using Polynomial = boost::container::flat_map<Monomial, Complex>;
 using SymbolicSeries = std::vector<Polynomial>;
-using SymbolicState = std::map<State, Polynomial>;
 struct SymbolicBlock {
     std::vector<State> basis;
     // Sparse (output state, input state) matrix for each lambda order.

@@ -45,7 +45,7 @@ is also the bit mask of occupied orbitals. An annihilator/creator contributes
 `(-1)^(number of occupied preceding orbitals)`. Matrix columns are inputs and
 rows are outputs. In an operator word, the rightmost operator acts first.
 
-Set `LocalTerm::fermionic` / `Interaction::fermionic` for an even Hamiltonian
+Set `LocalTerm::fermionic` / `OperatorChannel::fermionic` for an even Hamiltonian
 matrix supplied in the Fock order of its **ordered tensor legs**. The library
 gathers those legs to the front, followed by spectators in original order.
 For each inversion of two odd occupied local states it contributes a minus sign,

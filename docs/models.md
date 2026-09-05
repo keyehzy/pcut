@@ -100,16 +100,23 @@ The charge alphabet is the union of individual **operator channel** alphabets,
 including channels whose coupling is zero. Thus a coupling sweep can reuse the
 same coefficients without accidentally dropping a virtual process. To construct
 a finite numerical model, use `cluster_model(lattice, edges)` or `ClusterModel`
-directly. `WhiteGraphExpansion::block(embedding, effective, basis)` evaluates the
-cached symbolic block in a requested physical basis; pass an embedding reference
-from that expansion or a binding sharing its plan. Fermionic input/output
-permutations include graded signs. The optional fourth argument `true` requests
+directly. `WhiteGraphExpansion::block(index, effective, basis)` evaluates the
+cached symbolic block in a requested physical basis; pass an index into
+`embeddings()`. Indices are shared across bindings of the same plan. Fermionic
+input/output permutations include graded signs. When any channel is fermionic,
+ordinary channels must preserve parity on each individual site; incompatible
+mixed conventions are rejected before readout. The optional fourth argument `true` requests
 only monomials touching every edge; it is an algebraic support projection, and
 one-particle callers must still subtract its vacuum contribution. Raw blocks and
-support projections have separate cache contexts. `structural_model(embedding)`
+support projections have separate cache contexts. `structural_model(index)`
 provides a compiled unbound model in physical site order, with terms in canonical
-variable order, for basis and statistics inspection; use `cluster_model(graphs.lattice(), embedding.edges)` for a numerical
-Hamiltonian with bound couplings.
+variable order, for basis and statistics inspection; use `cluster_model(graphs.bound_lattice(), embedding.edges)` for a numerical
+Hamiltonian with bound couplings. `structure()` returns the shared immutable
+lattice with unit couplings; `bound_lattice()` explicitly materializes a bound lattice
+copy. `couplings(index)` accesses canonical channel ratios in constant time.
+Connected subtraction maps are requested through `graph_subclusters(graph)`
+or `embedding_subclusters(index)` and constructed lazily, preserving every
+embedded occurrence.
 
 Custom scalars use a reusable `ScalarEvaluator` with a pure callback returning
 formal corrections. This example is the additive sum of all channel strengths:

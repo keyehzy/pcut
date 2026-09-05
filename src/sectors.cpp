@@ -84,7 +84,7 @@ IrreducibleSectors irreducible_sectors(const ClusterModel& model,const Effective
 LinkedSectors linked_expand_sectors(const WhiteGraphExpansion& catalog, const EffectiveOperator& effective,
                                     unsigned max_charge) {
     if (catalog.max_edges()<effective.order()) throw std::invalid_argument("catalog does not cover perturbation order");
-    const auto& lattice=catalog.lattice();
+    const auto& lattice=catalog.structure();
     const auto order=effective.order();
     for (const auto& space : lattice.cell) space.require_product_vacuum();
     for (const auto& term : lattice.interactions) for (const auto& channel : term.channels) if (channel.op.fermionic)
@@ -101,18 +101,19 @@ LinkedSectors linked_expand_sectors(const WhiteGraphExpansion& catalog, const Ef
     }
     struct Weight { IrreducibleSectors sectors; std::vector<std::vector<unsigned>> local; };
     std::vector<Weight> weights;
-    for (const auto& entry : catalog.embeddings()) {
+    for (std::size_t index=0;index<catalog.embeddings().size();++index) {
+        const auto& entry=catalog.embeddings()[index];
         if (entry.edges.size()>order) break;
-        const auto& model=catalog.structural_model(entry);
+        const auto& model=catalog.structural_model(index);
         const auto basis=sector_basis(model,max_charge);
-        Weight weight{subtract_spectators(model,{basis,catalog.block(entry,effective,basis)}),{}};
+        Weight weight{subtract_spectators(model,{basis,catalog.block(index,effective,basis)}),{}};
         weight.sectors.kernels[0].setZero(); // embed bare on-site terms separately
         std::map<State,Eigen::Index> indices;
         for (std::size_t i=0;i<weight.sectors.basis.size();++i) {
             indices.emplace(weight.sectors.basis[i],static_cast<Eigen::Index>(i));
             weight.local.push_back(model.decode(weight.sectors.basis[i]));
         }
-        for (const auto& sub : entry.subclusters) {
+        for (const auto& sub : catalog.embedding_subclusters(index)) {
             const auto& child=weights[sub.index];
             std::vector<Eigen::Index> map;
             for (const auto& local : child.local) {
