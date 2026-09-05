@@ -152,12 +152,24 @@ TEST_CASE("Channel monomials and mapped subcluster subtraction preserve multipli
     auto lattice=square();
     auto second=lattice.interactions[0].channels[0];
     second.op.matrix=Matrix::Identity(4,4); second.coupling=0.31;
-    for (auto& interaction : lattice.interactions) interaction.channels.push_back(second);
+    for (auto& interaction : lattice.interactions) {
+        interaction.channels.push_back(second);
+        // Equal operator occurrences retain separate variables and ratios;
+        // opposite ratios cancel after embedding, including mixed monomials.
+        auto duplicate=interaction.channels.front(); duplicate.coupling=0.13;
+        interaction.channels.push_back(duplicate); duplicate.coupling=-0.13;
+        interaction.channels.push_back(duplicate);
+    }
     // Reorder channels in one color; variable maps must follow structure.
     std::reverse(lattice.interactions[1].channels.begin(),lattice.interactions[1].channels.end());
     const WhiteGraphExpansion expansion(lattice,2);
     const EffectiveOperator effective(Coefficients(charge_changes(lattice),2));
     compare_blocks(expansion,effective);
+    const auto raw_evaluations=expansion.cache()->evaluations();
+    auto reordered=lattice;
+    for (auto& interaction : reordered.interactions) std::reverse(interaction.channels.begin(),interaction.channels.end());
+    compare_blocks(WhiteGraphExpansion(reordered,2,expansion.cache()),effective);
+    REQUIRE(expansion.cache()->evaluations()==raw_evaluations);
     const ScalarEvaluator scalar([](const WhiteGraph& g,double,unsigned n) {
         SymbolicSeries result(n+1);
         for (std::size_t v=0;v<g.variables();++v) result[1][Monomial{}.multiplied(v)]=1;

@@ -1,5 +1,7 @@
 #include <pcut/white_graph.hpp>
 #include "detail.hpp"
+#include "incidence.hpp"
+#include <boost/multiprecision/cpp_int.hpp>
 #include <algorithm>
 #include <bit>
 #include <cmath>
@@ -53,7 +55,7 @@ std::string evaluation_key(const WhiteGraph& graph) {
     }
     return key;
 }
-// Exact interning is local to a construction. IDs accelerate refinement and
+// Exact interning is local to a construction. IDs accelerate serialization and
 // memoization; persistent graph/cache identities still contain full structures.
 struct Signatures {
     struct EdgeInfo { GraphEdge edge; std::string key; std::vector<std::size_t> order; };
@@ -128,77 +130,71 @@ static CanonicalGraph canonicalize_impl(const WhiteGraph& g, bool validate, Sign
     std::vector<std::string> structures;
     std::vector<std::vector<std::size_t>> orders;
     for (const auto& e : g.edges) { const auto id=pool.edge(e); structures.push_back(pool.edges[id].key); orders.push_back(pool.edges[id].order); }
-    auto unique_structures=structures;
-    std::sort(unique_structures.begin(),unique_structures.end());
-    unique_structures.erase(std::unique(unique_structures.begin(),unique_structures.end()),unique_structures.end());
-    std::vector<std::size_t> structure_ids;
-    for (const auto& key : structures) structure_ids.push_back(static_cast<std::size_t>(std::lower_bound(unique_structures.begin(),unique_structures.end(),key)-unique_structures.begin()));
-    // Ordered incidence color refinement. Full permutation search within the
-    // resulting cells makes this exact even when refinement cannot distinguish graphs.
-    for (std::size_t pass=0;pass<g.spaces.size();++pass) {
-        std::map<std::string,std::size_t> ids;
-        for (const auto& l : labels) ids.emplace(l,0);
-        std::size_t next=0; for (auto& [l,id] : ids) { (void)l; id=next++; }
-        std::vector<std::string> refined(g.spaces.size());
-        for (std::size_t v=0;v<g.spaces.size();++v) {
-            number(refined[v],ids.at(labels[v]));
-            std::vector<std::string> incident;
-            for (std::size_t ei=0;ei<g.edges.size();++ei) for (std::size_t leg=0;leg<g.edges[ei].legs.size();++leg) if (g.edges[ei].legs[leg]==v) {
-                const auto& e=g.edges[ei];
-                std::string signature; number(signature,structure_ids[ei]); number(signature,leg);
-                for (auto w : e.legs) number(signature,ids.at(labels[w]));
-                incident.push_back(std::move(signature));
-            }
-            std::sort(incident.begin(),incident.end());
-            for (const auto& signature : incident) string(refined[v],signature);
+    detail::Incidence incidence;
+    for (const auto& label : labels) incidence.node("V"+label);
+    // Restriction to physical vertices is onto. Its kernel permutes identical
+    // ordered edge occurrences. Channel leaves have canonical sorted-slot
+    // colors: all occurrences survive, with no redundant channel permutations.
+    // Count the kernel exactly; only the quotient must fit size_t.
+    boost::multiprecision::cpp_int kernel=1;
+    std::map<std::string,std::size_t> edge_multiplicities;
+    for (std::size_t e=0;e<g.edges.size();++e) {
+        const auto& edge=g.edges[e];
+        const int occurrence=incidence.node("E"+structures[e]);
+        for (std::size_t leg=0;leg<edge.legs.size();++leg) {
+            std::string color="L"; number(color,leg);
+            const int port=incidence.node(std::move(color));
+            incidence.join(occurrence,port);
+            incidence.join(port,static_cast<int>(edge.legs[leg]));
         }
-        labels=std::move(refined);
+        // The parent color contains the full sorted operator list. Its slot
+        // identifies the exact operator without repeating matrix bytes. Equal
+        // operators get distinct slots; reordering them only changes the map.
+        // Every physical vertex automorphism still extends to this encoding.
+        for (std::size_t c=0;c<edge.channels.size();++c) {
+            std::string color="C"; number(color,c);
+            incidence.join(occurrence,incidence.node(std::move(color)));
+        }
+        auto key=structures[e]; sequence(key,edge.legs);
+        kernel*=++edge_multiplicities[key];
     }
-    std::map<std::string,std::vector<std::size_t>> cells;
-    for (std::size_t v=0;v<labels.size();++v) cells[labels[v]].push_back(v);
-    std::vector<std::vector<std::size_t>> groups;
-    for (auto& [key,cell] : cells) { (void)key; groups.push_back(std::move(cell)); }
-    CanonicalGraph best;
-    const auto source_offsets=offsets(g);
+    const auto labeling=detail::label_incidence(incidence);
     std::vector<std::size_t> permutation;
-    std::function<void(std::size_t)> search=[&](std::size_t group) {
-        if (group<groups.size()) {
-            auto cell=groups[group];
-            do {
-                permutation.insert(permutation.end(),cell.begin(),cell.end()); search(group+1);
-                permutation.resize(permutation.size()-cell.size());
-            } while (std::next_permutation(cell.begin(),cell.end()));
-            return;
-        }
-        std::vector<std::size_t> inverse(g.spaces.size());
-        CanonicalGraph candidate;
-        candidate.map.vertices=permutation;
-        number(candidate.key,g.spaces.size());
-        for (std::size_t v=0;v<permutation.size();++v) {
-            inverse[permutation[v]]=v; candidate.graph.spaces.push_back(g.spaces[permutation[v]]);
-            string(candidate.key,pool.spaces[space_ids[permutation[v]]].second);
-        }
-        std::vector<std::pair<std::string,std::size_t>> edges;
-        for (std::size_t e=0;e<g.edges.size();++e) {
-            auto key=structures[e];
-            for (auto v : g.edges[e].legs) number(key,inverse[v]);
-            edges.emplace_back(std::move(key),e);
-        }
-        std::sort(edges.begin(),edges.end()); number(candidate.key,edges.size());
-        for (const auto& [key,e] : edges) {
-            string(candidate.key,key); candidate.map.edges.push_back(e);
-            GraphEdge edge;
-            for (auto v : g.edges[e].legs) edge.legs.push_back(inverse[v]);
-            for (auto c : orders[e]) { edge.channels.push_back(g.edges[e].channels[c]); candidate.map.channels.push_back(source_offsets[e]+c); }
-            candidate.graph.edges.push_back(std::move(edge));
-        }
-        if (best.key.empty() || candidate.key<best.key) { best=std::move(candidate); best.vertex_automorphisms=1; }
-        else if (candidate.key==best.key) {
-            if (best.vertex_automorphisms==std::numeric_limits<std::size_t>::max()) throw std::length_error("automorphism count overflow");
-            ++best.vertex_automorphisms;
-        }
-    };
-    search(0); return best;
+    for (int node : labeling.canonical_to_input)
+        if (static_cast<std::size_t>(node)<g.spaces.size()) permutation.push_back(static_cast<std::size_t>(node));
+    boost::multiprecision::cpp_int group=1;
+    for (int index : labeling.group_indices) group*=index;
+    if (group%kernel!=0) throw std::logic_error("incidence automorphism kernel mismatch");
+    group/=kernel;
+    if (group>std::numeric_limits<std::size_t>::max()) throw std::length_error("automorphism count overflow");
+    const auto source_offsets=offsets(g);
+    std::vector<std::size_t> inverse(g.spaces.size());
+    CanonicalGraph candidate;
+    candidate.map.vertices=permutation;
+    number(candidate.key,g.spaces.size());
+    for (std::size_t v=0;v<permutation.size();++v) {
+        inverse[permutation[v]]=v; candidate.graph.spaces.push_back(g.spaces[permutation[v]]);
+        string(candidate.key,pool.spaces[space_ids[permutation[v]]].second);
+    }
+    // Once vertex labels are canonical, exact structural sorting recovers
+    // edge/channel maps. Equal occurrences use their input index as a tie-break;
+    // it affects only the occurrence map, never the serialized identity.
+    std::vector<std::pair<std::string,std::size_t>> edges;
+    for (std::size_t e=0;e<g.edges.size();++e) {
+        auto key=structures[e];
+        for (auto v : g.edges[e].legs) number(key,inverse[v]);
+        edges.emplace_back(std::move(key),e);
+    }
+    std::sort(edges.begin(),edges.end()); number(candidate.key,edges.size());
+    for (const auto& [key,e] : edges) {
+        string(candidate.key,key); candidate.map.edges.push_back(e);
+        GraphEdge edge;
+        for (auto v : g.edges[e].legs) edge.legs.push_back(inverse[v]);
+        for (auto c : orders[e]) { edge.channels.push_back(g.edges[e].channels[c]); candidate.map.channels.push_back(source_offsets[e]+c); }
+        candidate.graph.edges.push_back(std::move(edge));
+    }
+    candidate.vertex_automorphisms=group.convert_to<std::size_t>();
+    return candidate;
 }
 CanonicalGraph canonicalize(const WhiteGraph& graph) { Signatures pool; return canonicalize_impl(graph,true,pool); }
 struct WhiteGraphExpansion::Plan {

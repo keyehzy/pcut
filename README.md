@@ -24,9 +24,12 @@ Non-equidistant spectra require a different perturbative scheme.
 
 ## Build and run
 
-Requires a C++20 compiler, CMake 3.25+, Ninja, Eigen 3.4+, and Boost 1.81+.
+Requires GCC or Clang with C11/C++20 support, POSIX `sh`, CMake 3.25+, Ninja,
+Eigen 3.4+, and Boost 1.81+.
 Catch2 3 is used if installed; otherwise CMake downloads the pinned, checksummed
 Catch2 3.8.1 source archive. Eigen and Boost are system dependencies.
+CMake also fetches checksummed nauty 2.9.3 for white-graph canonical labeling;
+see [dependencies and offline builds](docs/dependencies.md).
 
 ```sh
 # macOS
@@ -55,7 +58,9 @@ cmake --build --preset sanitize -j 6
 ctest --preset sanitize
 ```
 
-For an offline build, install Catch2 3 or disable tests with `-DBUILD_TESTING=OFF`.
+For an offline build, supply the verified nauty source directory with
+`-DFETCHCONTENT_SOURCE_DIR_NAUTY=/path/to/nauty2_9_3`, and install Catch2 3
+or disable tests with `-DBUILD_TESTING=OFF`.
 For a nonstandard dependency prefix, pass `-DCMAKE_PREFIX_PATH=/your/prefix`.
 
 ## Library use
@@ -84,7 +89,8 @@ For a coupling sweep, construct the expansion once and use
 embeddings, lazily constructed subcluster maps, compiled operators and sparse
 block readout plans.
 See [measured performance and trade-offs](docs/performance.md) for reproducible
-comparisons with `a22f963`.
+comparisons with the canonicalizer starting revision `a4ea23c` and the earlier
+engine revision `a22f963`.
 `Interaction::channels` separates fixed `OperatorChannel{matrix, fermionic}`
 operators from numerical `coupling` ratios. See [the model guide](docs/models.md)
 for a complete coupling-sweep example. Run `build/release/pcut_white_sweep`

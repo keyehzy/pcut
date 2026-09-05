@@ -1,126 +1,189 @@
-# White-graph optimization results
+# White-graph canonicalizer measurements
 
-The optimized engine delivers a clear end-to-end coupling-sweep improvement over
-`a22f963` on all four comparison workloads. The original stricter requirement of
-an established cold-run improvement everywhere **and no peak-memory regression
-is not met**: the Ising cold ranges overlap, and peak RSS medians increased.
-The implemented trade-off accepts that overhead in exchange for substantial
-complete-sweep gains, as agreed during this optimization.
+The production exhaustive vertex search has been replaced by sparse **nauty
+2.9.3**. The final encoding retains every edge/channel occurrence, full exact
+physical signatures, ordered legs and explicit maps. Canonical order may change;
+full structural and cache identities remain exact. See [design.md](design.md)
+and [dependency provenance](dependencies.md).
 
-## Matched end-to-end measurements
+These measurements compare the starting revision
+`a4ea23c88325141eed0e2f2cff387546214b976f` with this implementation. The earlier
+engine redesign comparison against `a22f963` is preserved separately in
+[performance-engine.md](performance-engine.md).
 
-Measured on 2026-09-05, macOS 15.7.7 arm64, Apple Clang 17, Release
-`-O3 -DNDEBUG`, with identical Eigen and Boost 1.90 installations and matched
-compiler/architecture settings. Seven independent processes per engine/workload
-ran serially, alternating engine order, after all correctness and sanitizer
-workloads finished. No samples were discarded. Both engines reuse coefficient
-programs and immutable topology. Current bindings also reuse graph evaluations
-and sparse readout maps. Cold time includes initial model creation, coefficient
-program compilation, topology, first binding and linking. Complete sweep time
-includes every point, binding, linking and output formatting. Process wall time
-is also retained in the raw results.
+## Method and scope
 
-The cases and coupling sequences match the original review: 21 points for both
-Ising cases and dimer, six for Hubbard. Ising and dimer include vacuum and
-one-particle results. Hubbard includes the complete charge-zero operator and its
-per-order summaries, with no finite assembly or diagonalization in the timed
-region. Square templates have displacements `(1,0)` and `(0,1)`; four-color adds
-`(1,1)` and `(1,-1)`. The harness records every binding separately.
+Measured 2026-09-05 on macOS 15.7.7 arm64, Apple Clang 17, Release
+`-O3 -DNDEBUG`, with matching compiler/architecture/Eigen/Boost settings. Seven
+independent processes per engine/workload ran serially with alternating order,
+after release and sanitizer workloads finished. Every sample from the final
+run is included. The [machine-readable report](performance-canonical.json)
+contains the source fingerprint, compiler/build metadata, all raw scalar samples,
+medians, MADs and ranges. No timing assertions or work budgets were introduced.
 
-Times below are process medians, in seconds.
+The real catalogs contain 118 square-Ising inputs (order 4), 276 four-color-Ising
+inputs (order 3), 118 square-Hubbard inputs (order 4), and six dimer inputs (order
+6). Inputs come from identical sorted physical embeddings; geometry and ratios
+are removed. Each catalog is canonicalized 100 times per isolated process.
+Backend timing uses the same prepared incidence graphs and includes partition
+reset, canonical output, adjacency readout and scratch cleanup; it excludes
+physical validation/serialization, encoding, maps and the exact group quotient.
+Complete API timing includes all of those operations.
 
-| Workload | Previous cold | Optimized cold | Previous complete sweep | Optimized complete sweep | Sweep speedup |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Square Ising, order 4 | 0.004654 | 0.004433 | 0.065176 | 0.008141 | 8.01× |
-| Four-color Ising, order 3 | 0.003459 | 0.003304 | 0.042937 | 0.009660 | 4.44× |
-| Square Hubbard Q=0, order 4 | 0.325816 | 0.097005 | 1.963909 | 0.398109 | 4.93× |
-| Dimer vacuum + one particle, order 6 | 0.242629 | 0.217250 | 4.425363 | 0.226763 | 19.52× |
+Standalone topology processes construct one catalog and sample peak RSS before
+coefficient generation or linking. End-to-end sweeps use the original four
+comparison workloads: 21 points for both Ising models and dimer vacuum/particle,
+six points for the full Hubbard Q=0 operator. Cold time includes model,
+coefficients, topology, first binding and linking. Sweep time includes all points
+and output formatting. Peak RSS is whole-process memory, not incremental nauty
+scratch; backend/API RSS includes untimed catalog/input setup. It includes
+allocator and dense result storage for end-to-end runs.
 
-For **every complete sweep**, the slowest optimized sample is faster than the
-fastest baseline sample, so the gains exceed the observed variability. Hubbard
-and dimer also have disjoint cold-time ranges (3.36× and 1.12× median speedups).
-Ising cold medians improve by about 5%, but overlapping ranges do not establish
-a reliable cold advantage.
+## Backend choice
 
-## Variability and peak memory
+Median microseconds per prepared incidence graph; RSS is MiB.
 
-Each time entry is `median ± MAD [minimum, maximum]`, in seconds. MAD is median
-absolute deviation, not a confidence interval. RSS is process peak resident
-memory in MiB, shown as `median [minimum, maximum]`. Full precision, warm-point
-statistics and RSS MADs are retained in [performance-optimized.json](performance-optimized.json).
-
-| Workload / engine | Cold time | Complete sweep | Peak RSS (MiB) |
+| Workload | nauty µs | Traces µs | nauty / Traces peak RSS |
 | --- | ---: | ---: | ---: |
-| square / previous | 0.004654 ± 0.000086 [0.004538, 0.011644] | 0.065176 ± 0.000714 [0.064341, 0.095378] | 2.42 [2.02, 4.55] |
-| square / optimized | 0.004433 ± 0.000037 [0.004362, 0.011348] | 0.008141 ± 0.000091 [0.008050, 0.020615] | 3.28 [3.28, 3.42] |
-| four_color / previous | 0.003459 ± 0.000013 [0.003384, 0.003515] | 0.042937 ± 0.000562 [0.042019, 0.043527] | 2.36 [2.36, 3.09] |
-| four_color / optimized | 0.003304 ± 0.000034 [0.003242, 0.003540] | 0.009660 ± 0.000066 [0.009563, 0.010012] | 3.14 [3.14, 3.41] |
-| hubbard / previous | 0.325816 ± 0.004602 [0.321214, 0.341115] | 1.963909 ± 0.028951 [1.923373, 2.023851] | 741.98 [681.09, 977.23] |
-| hubbard / optimized | 0.097005 ± 0.001163 [0.095369, 0.099746] | 0.398109 ± 0.022925 [0.364629, 0.434111] | 812.64 [526.36, 898.00] |
-| dimer / previous | 0.242629 ± 0.000652 [0.240611, 0.249040] | 4.425363 ± 0.014828 [4.400389, 4.458020] | 12.05 [11.88, 12.22] |
-| dimer / optimized | 0.217250 ± 0.001569 [0.213660, 0.219720] | 0.226763 ± 0.001441 [0.222730, 0.229248] | 21.17 [16.11, 22.97] |
+| Square Ising, order 4 | 1.15 | 2.31 | 2.97 / 3.12 |
+| Four-color Ising, order 3 | 1.00 | 2.16 | 3.23 / 3.31 |
+| Square Hubbard, order 4 | 1.15 | 2.28 | 7.89 / 8.05 |
+| Dimer, order 6 | 1.05 | 2.37 | 3.36 / 3.48 |
+| Star, 8 leaves | 7.36 | 2.62 | 1.64 / 1.78 |
+| Directed 8-cycle | 2.06 | 2.60 | 1.62 / 1.78 |
+| Complete bidirected graph, 7 vertices | 32.66 | 59.35 | 1.69 / 1.92 |
+| 32 duplicate edges × 8 duplicate channels | 346.02 | 11.80 | 2.02 / 2.23 |
+| Star, 20 leaves | 54.45 | 5.31 | 1.67 / 1.84 |
+| Directed 64-cycle | 14.61 | 13.41 | 1.80 / 2.03 |
 
-Peak memory remains a cost of this design. Dimer grows from 12.05 to 21.17 MiB
-median; the small Ising cases add roughly 0.8 MiB. Hubbard's median rises from
-741.98 to 812.64 MiB, with broad overlapping ranges. RSS includes dense result
-matrices and allocator behavior as well as cached symbolic results; these data
-do not isolate the cache's contribution. There is no claim of memory improvement.
+Sparse nauty is about 2–2.3× faster on the four real catalogs. Traces is faster
+on the stars, larger cycle and duplicate stress case; it is **not** uniformly
+slower. We select nauty because of the catalog results and its documented
+integer `userlevelproc` stabilizer indices, which support exact group order
+without another permutation-group implementation. Traces' documented group-size
+statistics are approximate and are insufficient for exact overflow checks.
+Both backends are tested on identical colored inputs; their canonical ordering
+need not agree. Only nauty is linked into production.
 
-## Reuse counts and implementation
+## Complete canonicalization and topology
 
-| Workload | Previous evaluations: first / remaining sweep | Optimized evaluations: first / remaining sweep |
+The complete API includes validation, exact signatures, encoding, labeling,
+vertex automorphism count, structural serialization and every map. Medians are
+microseconds per call. Speedup is baseline/current; below 1 means a regression.
+
+| Workload | Exhaustive µs | nauty API µs | Speedup | Previous / current RSS (MiB) |
+| --- | ---: | ---: | ---: | ---: |
+| Square Ising, order 4 | 11.15 | 9.11 | 1.22× | 2.92 / 3.16 |
+| Four-color Ising, order 3 | 8.04 | 7.28 | 1.10× | 3.23 / 3.41 |
+| Square Hubbard, order 4 | 20.58 | 18.37 | 1.12× | 8.08 / 8.09 |
+| Dimer, order 6 | 39.93 | 41.21 | 0.97× | 3.12 / 3.34 |
+| Star, 8 leaves | 103351.71 | 88.71 | 1165.08× | 1.92 / 1.83 |
+| Directed 8-cycle | 95250.38 | 79.96 | 1191.26× | 1.88 / 1.84 |
+| Complete bidirected graph, 7 vertices | 57049.75 | 203.12 | 280.86× | 1.78 / 1.94 |
+| 32 duplicate edges × 8 duplicate channels | 233.04 | 653.83 | 0.36× | 2.31 / 2.55 |
+
+Standalone topology construction measures time and process peak memory without
+coefficient generation or linking. Times are milliseconds.
+
+| Workload | Previous ms | Current ms | Previous / current peak RSS (MiB) |
+| --- | ---: | ---: | ---: |
+| Square Ising, order 4 | 1.979 | 1.689 | 2.75 / 2.88 |
+| Four-color Ising, order 3 | 1.358 | 1.282 | 2.66 / 2.80 |
+| Square Hubbard, order 4 | 2.634 | 2.419 | 7.69 / 7.70 |
+| Dimer, order 6 | 0.315 | 0.343 | 3.06 / 3.27 |
+
+The star/cycle/complete cases demonstrate removal of the exhaustive factorial
+search, with roughly 280–1,200× complete-API improvements at these measured
+sizes. No baseline timing is claimed for the backend-only star-20 or cycle-64.
+Dimer API time regresses by 3.2%, and its standalone topology median by 8.6%
+(about 27 µs). The old refinement already makes these small oriented paths
+trivial; incidence construction and full gadget labeling add fixed work.
+Duplicate-heavy input remains 2.8× slower than the baseline: two physical
+vertices are trivial for the old search, while nauty still processes 354 incidence
+vertices and a `32!` edge kernel. This is a remaining measured limitation.
+
+## Regression investigation
+
+The initial encoding used full operator-signature colors on channel leaves.
+It duplicated matrix serialization and introduced a channel-permutation kernel
+`(8!)^32` in the duplicate stress case. The initial complete-API medians were
+14.53 ms for duplicates, 27.08 µs for Hubbard and 58.49 µs for dimer. The initial
+seven-repeat summary and source fingerprint are retained in
+[performance-canonical-initial.json](performance-canonical-initial.json).
+
+The final encoding uses distinct sorted-channel slot colors. The parent edge
+still contains the complete sorted operator list, so each slot identifies its
+operator exactly. All channel occurrences and maps survive, but internal
+channel permutations disappear. Every physical vertex automorphism still
+extends through corresponding slots; only duplicate-edge permutations remain
+in the exact kernel quotient. This removes repeated operator color bytes and
+most of the duplicate stress cost without changing graph identity semantics,
+lattice growth, symbolic evaluation or embedding multiplicities. Final oracle,
+map, channel-cancellation, cache-reuse and graded-readout tests pass.
+
+## End-to-end trade-offs
+
+Times are milliseconds; each workload uses the same complete coupling sequence
+on both engines. These topology times follow coefficient compilation, unlike
+the standalone topology processes above.
+
+| Workload | Topology previous / current | Cold previous / current | Sweep previous / current |
+| --- | ---: | ---: | ---: |
+| Square Ising, order 4 | 1.470 / 1.275 | 3.261 / 3.117 | 6.352 / 6.217 |
+| Four-color Ising, order 3 | 1.406 / 1.301 | 2.526 / 2.398 | 7.912 / 7.796 |
+| Square Hubbard, order 4 | 2.674 / 2.436 | 93.970 / 92.724 | 366.433 / 363.914 |
+| Dimer, order 6 | 0.296 / 0.346 | 224.377 / 225.481 | 233.536 / 234.685 |
+
+All four cold-time and sweep-time ranges overlap between engines. The small
+median differences do **not** establish a reliable broad end-to-end gain or
+regression. Canonicalization is a small part of these complete workloads;
+coefficient compilation and symbolic/readout work remain substantial.
+
+Peak process RSS, median [minimum, maximum], in MiB:
+
+| Workload | Previous | Current |
 | --- | ---: | ---: |
-| square | 118 / 2360 | 30 / 0 |
-| four_color | 276 / 5520 | 13 / 0 |
-| hubbard | 118 / 590 | 30 / 0 |
-| dimer | 6 / 120 | 6 / 0 |
+| Square Ising, order 4 | 2.97 [2.97, 3.23] | 3.05 [3.05, 3.58] |
+| Four-color Ising, order 3 | 2.91 [2.91, 3.34] | 2.98 [2.98, 3.41] |
+| Square Hubbard, order 4 | 777.12 [647.31, 852.05] | 766.41 [666.11, 829.47] |
+| Dimer, order 6 | 18.31 [16.08, 21.92] | 19.89 [16.19, 22.80] |
 
-The implementation changes are general engine operations:
+There is no demonstrated end-to-end memory improvement. Small Ising medians
+increase by 0.078 MiB, and dimer by 1.58 MiB. Hubbard's median decreases, but
+its broad overlapping range does not establish a reduction. Standalone
+topology and API RSS also include input storage and allocator behavior; these
+measurements do not identify the contribution of each allocation. Inspection
+confirms nauty scratch is freed after each call and cache contexts/evaluation
+counts are unchanged; no extra persistent canonicalizer cache was added.
 
-- `WhiteGraphExpansion::bind(lattice.couplings())` shares immutable canonical
-  lattice/operator structure, graphs, infinite embeddings, lazy connected-subcluster
-  maps, compiled models and
-  sparse readout plans. Numerical ratios remain binding data.
-- Infinite edge-set growth supplies embedding witnesses for canonical white
-  graphs. Exact structural signatures and canonicalization results are reused
-  during construction; ordered legs, species, parallel templates and channels
-  remain distinct. Persistent identities contain full exact structures.
-- Monomials use inline exponent packing with an unrestricted sparse fallback
-  within the existing degree/index representation. Symbolic scratch uses interned
-  monomial IDs and Boost flat hash tables; cached polynomials use sorted
-  contiguous storage. Reached transitions are memoized per input column.
-- Exact-rational row-space factorization shares linearly dependent coefficient
-  continuations. The original exact program remains the cache identity. Real
-  operators use real scratch arithmetic; complex operators retain complex values.
-- Vacuum/one-particle and Q=0 drivers use an exact full-edge monomial projection
-  to eliminate proper-subcluster subtraction. One-particle vacuum subtraction
-  remains mandatory. The raw-block, general-sector and custom scalar paths remain
-  available with their full semantics.
-- Cached block readout traverses stored entries using persistent physical row,
-  column and graded-sign maps, without dense searches through sparse maps.
+## Validation and reproduction
 
-See [design.md](design.md) for the support-projection argument, exact program
-compilation, basis order, units, limits and cache contracts. Boost 1.81+ is now
-required for its flat hash containers. No compatibility wrappers, configurable
-work/storage budgets, numerical pruning or benchmark-specific branches were added.
+Release and sanitize configure/build/CTest workflows each pass all 53 tests.
+Additional checks cover the exhaustive oracle on small and real catalog graphs,
+arbitrary vertex/edge/channel reorderings, connected regular graphs with equal
+refinement colors, all three maps, exact species/operator metadata, unequal
+local dimensions, on-site/higher-arity edges, duplicate templates/channels,
+vertex groups through `20!`, overflow at `21!`, huge gadget kernels, concurrent
+calls, and recovery from every injected upstream allocation failure in the
+fixture. Graded fermionic blocks, linked cancellation, subcluster multiplicity,
+coefficient fixtures and literature benchmarks remain covered. The strengthened
+identical-channel test additionally passes under both presets: opposite ratios
+cancel and channel reordering reuses cached full blocks.
 
-## Correctness and reproduction
+All final sweep outputs agree at `1e-10` absolute/relative tolerance; maximum
+scaled discrepancy is **4.14e-16**. Graph, embedding and evaluation counts match
+exactly. First/later graph evaluations remain 30/0 for square and Hubbard,
+13/0 for four-color, and 6/0 for dimer. Scalar norms/traces in the timing harness
+supplement, rather than replace, full-matrix correctness tests.
 
-All 47 CTest cases pass after configure/build with both `release` and `sanitize`
-presets. The suite retains exact coefficient fixtures, independent analytic and
-literature results, intermediate-charge checks, graded embedding and linking
-checks. New tests cover shared binding ownership and invalid ratios, compact
-monomial fallbacks, wide complex channel alphabets, and full Hubbard linked
-matrices through fourth order against independent mapped subtraction at unequal
-and zero couplings. Raw and support-projected blocks have separate exact cache
-contexts; cache-count tests reflect that distinction.
-
-Every original comparison output agrees at `1e-10` absolute/relative tolerance;
-the largest scaled discrepancy is 3.88e-13. Hubbard norms/traces supplement the
-full-matrix correctness tests and are not treated as proof of matrix equality.
-The independent dimer benchmark through eighth order also passes, with maximum
-absolute vacuum-coefficient error 9.72e-17; its output is in
-[benchmark.json](benchmark.json). Timing assertions are absent from CTest.
+Default checksum-verified dependency fetching, offline source override,
+relocated static-package consumption and shared-package consumption were
+validated. Downloaded research reference checksums still match. Remaining
+limitations are native GCC/Clang/POSIX-sh integration (validated here with Apple
+Clang), untested cross/MSVC builds, nauty's integer representation limits,
+expensive hard graph families/duplicate-edge kernels, and the pre-existing
+exponential symbolic/cluster growth. No ordering compatibility, finite-size
+approximation, graph-work budget, or truncation was added.
 
 ```sh
 cmake --preset release
@@ -129,15 +192,11 @@ ctest --preset release
 cmake --preset sanitize
 cmake --build --preset sanitize
 ctest --preset sanitize
-# Run these serially after the tests finish:
-python3 scripts/benchmark.py
-python3 scripts/engine-comparison/run.py
+# Run serially after validation finishes:
+python3 scripts/canonical-comparison/run.py
 ```
 
-The comparison script builds both libraries and a common harness, verifies the
-clean baseline commit, and retains raw outputs, per-point values and complete
-measurement JSON in `build/engine-comparison-optimized/`. See the
-[tooling instructions](../scripts/engine-comparison/README.md). The compact report
-contains the measured source fingerprint and build settings. Build products are
-not versioned. The [earlier review](performance-review.md) remains a historical
-record of the initial redesign's regressions.
+See the [comparison tooling instructions](../scripts/canonical-comparison/README.md)
+for workload details, scope and raw outputs under `build/canonical-comparison/`.
+All scalar samples and variability are retained in the versioned JSON report;
+build products remain unversioned.

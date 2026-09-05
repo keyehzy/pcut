@@ -94,18 +94,56 @@ Witness growth avoids generating abstract candidates that cannot embed, and
 collects every physical embedding while sharing its canonical graph evaluation.
 There is no finite periodic box or finite-size approximation.
 
-Canonicalization refines ordered incidence colors, then searches every vertex
-permutation within the refined cells. The minimum exact structural serialization
-is the key; refinement alone is never used as an isomorphism test. This handles
-arbitrary vertex permutations, not only spatial rotations and reflections.
-Vertex identity includes species (`LocalSpace::name`), ordered charge levels,
-reference energy, particle numbers and parity. Edge identity includes ordered
-legs and exact channel matrices/statistics, with channels sorted structurally.
-Equal channels and parallel edges retain their separate occurrences. Returned
-`GraphMap` objects explicitly map canonical vertices, edges and flattened
-edge/channel variables to the input graph. The reported automorphism count is
-for vertices; parallel-edge/channel permutations are handled by occurrence
-mapping and embedding deduplication, without factorial normalization.
+Canonicalization uses sparse **nauty 2.9.3** on a lossless vertex-colored
+incidence graph. Four disjoint color namespaces encode physical vertices,
+edge occurrences, ordered-leg ports and channel occurrences:
+
+- A physical vertex carries the exact `LocalSpace` serialization: species name,
+  ordered charges, reference energy, particle numbers and parity.
+- Each edge occurrence has its own node, colored by arity and the complete
+  sorted multiset of channel matrices/statistics.
+- Each ordered leg has a port adjacent to its edge node and physical vertex;
+  its color contains the leg position. On-site and arbitrary-arity edges use
+  exactly the same construction.
+- Each channel occurrence has a separate leaf attached to its edge, colored by
+  its slot in that edge's structurally sorted channel list. The parent color
+  contains the full list of exact matrix dimensions, real/imaginary double
+  values and fermionic flags, so a slot identifies the operator losslessly.
+  Even equal channels have distinct slot colors. Input reordering of equal
+  channels changes only their occurrence map; it cannot change vertex
+  equivalence. Duplicate edge templates remain separate nodes.
+
+Colors are sorted by their full strings to form nauty's ordered initial
+partition. Coordinates and coupling ratios never enter it. Refinement and hashes
+are not identities. Nauty's canonical `lab` supplies the canonical-to-input
+physical vertex order. Given those vertex labels, sorting complete edge
+structures and ordered legs, then exact channel structures, recovers explicit
+canonical-to-input vertex, edge and flattened-channel maps. Input occurrence
+indices break ties only between identical edges/channels; the structural
+serialization is unchanged by those ties. The persistent key contains every
+local-space and operator signature and every ordered leg, never just an
+incidence hash, interned ID, or refinement signature. Canonical ordering differs
+from the former exhaustive algorithm and is not a stable file format.
+
+The incidence group's restriction to physical vertices is onto the white graph's
+vertex automorphism group: every vertex automorphism extends by matching equal
+edge occurrences and the corresponding sorted channel slots. Its kernel has
+order `product_(identical ordered edges) multiplicity!`. Sorted channel-slot
+colors remove internal channel permutations without restricting any physical
+vertex automorphism. Once physical vertices and edge occurrences are fixed,
+ordered ports and channel slots have no freedom. We collect
+nauty's integer stabilizer indices using `userlevelproc`, multiply them with
+Boost arbitrary-precision integers, and divide by that exact kernel. We verify
+divisibility and only then check whether the vertex count fits `size_t`.
+Floating-point group-size statistics are never used. A huge gadget group is
+therefore allowed when its vertex quotient fits. Neither this count nor the
+kernel is used to normalize embeddings or subclusters.
+
+The exhaustive algorithm exists only in the small-graph test oracle. Production
+has no fallback search or backend selection switch. The native GCC/Clang build,
+allocation-failure propagation, TLS, pinned dependency, installed package and
+offline build are documented in [dependencies.md](dependencies.md). Backend
+selection and measured trade-offs are in [performance.md](performance.md).
 
 Each completed physical edge set is normalized by its minimum edge origin.
 Deduplicating these exact sets removes translation and automorphism overcounting.
@@ -113,7 +151,7 @@ Each stored `GraphEmbedding` therefore occurs once per unit cell. Its sites are
 sorted physical lattice sites; canonicalization supplies explicit vertex, edge
 and flattened channel maps retaining ordered legs and physical displacements.
 Exact species/operator signatures are interned during construction, and compact
-local IDs accelerate refinement and repeated canonicalization. Persistent graph
+local IDs accelerate serialization and repeated canonicalization. Persistent graph
 identity still contains full structural serialization, never just those IDs or
 a hash. Operator validation occurs at the public boundary; generated candidates
 reuse already validated structure.
@@ -277,8 +315,11 @@ public APIs and validation.
   elements have different precision contracts.
 - Large local matrices are currently supplied densely and compiled into sparse
   transitions; a matrix-free local-operator frontend is a possible extension.
-- Canonical labeling uses exhaustive search within incidence-refined cells;
-  worst-case cost is factorial. Ordered-leg symmetries of particular matrices
+- Nauty prunes canonical-labeling search using refinement and automorphisms;
+  difficult incidence graphs and large duplicate gadget groups can still be
+  expensive. Gadget counts/degrees must fit nauty's signed indices and its
+  `1000 * SETWORDSNEEDED(n)` workspace length; these representation checks
+  throw rather than truncate. Ordered-leg symmetries of particular matrices
   are not inferred. Graph/channel monomial growth can be exponential.
 - No resummation, transformed observables, automatic statistics, or built-in
   distributed execution. Fermionic
@@ -291,3 +332,7 @@ coupling substitution follow Coester and Schmidt (2015), sections III–IV in
 `references/sources/1505.02975/white_graphs.tex`. Ordered hyperedges, species,
 parallel channels, graded state mappings and cache context serialization are
 implementation extensions. Downloaded research sources are unchanged.
+
+Canonical labeling follows the official nauty/Traces guide; see
+[dependency provenance](dependencies.md). The incidence encoding, exact kernel
+quotient and physical occurrence maps are pcut integration code.
